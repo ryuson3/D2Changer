@@ -30,6 +30,7 @@ import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } fr
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
 import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
+import { withResidentModels, type Resident } from './resident-models.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles, entityModel, particleReplacements, heroLoadoutParticles } from './particle-spec.ts';
 import { offeredUnusual, effectNames } from './item-unusual.ts';
@@ -374,6 +375,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       } catch { /* the wearable is gone: its own pick reports it */ }
     }
     const refitLines: string[] = [];
+    const residents: Resident[] = [];
     for (const [slotId, rec] of Object.entries(s.items)) {
       const avoid = undefined;
       const key = `${rec.itemId}|${itemBuilder.effectKey(rec.effects)}${avoid ? `|${[...avoid].sort().join(',')}` : ''}`;
@@ -389,6 +391,14 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         }
         if (swaps.size) pick = refitPick(pick, swaps, slotId, refitLines);
         heroPatches.push({ id: pick.id, block: pick.block, assets: pick.assets, source: slotId });
+        // a model with no stock path under it stays loaded through the hero's own model (src/resident-models.ts)
+        if (pick.resident) {
+          const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
+          for (const h of mine) {
+            try { residents.push({ patch: heroPatches.length - 1, heroModel: `${normalizeAssetPath(heroModelPath(ix, `npc_dota_hero_${h}`))}_c`, model: pick.resident }); }
+            catch { /* a hero with no model of its own in the script */ }
+          }
+        }
         const trace = traceOf(slotId, rec, pick.id);
         trace.paths = pick.assetCopies.flatMap((c) => {
           if (!('to' in c)) return [];
@@ -416,6 +426,10 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(path.join(dataDir, 'refit-report.txt'), lines.join('\n'));
       } catch { /* only a help */ }
+    }
+    if (residents.length) {
+      const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
+      failed.push(...withResidentModels(heroPatches, residents, (p) => ix.read(p)));
     }
     if (heroPatches.length) {
       // Two picks rewrite the same soundevents file, portrait settings and sprite sheet, and the
