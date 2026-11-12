@@ -9,7 +9,7 @@
     connected: false, gameRunning: false, pending: false, applying: false, picks: {}, slots: null, loading: false, current: null, query: '',
     // hero items: the view (a slot of the free cosmetics, or the heroes), the grid, one hero's data, the picks
     why: new Map(), tab: 'cos', eq: null, eqLoading: false, pics: new Map(), tool: null, toolBusy: false, set: null,
-    view: 'heroes', emblems: null, emblemsLoading: false, slotFx: {}, effects: [], items: {}, icons: {}, spells: null, spellsLoading: false, spellHero: null, gem: null, heroes: null, heroLoading: false, hero: null, heroData: null, heroSlot: null, fx: new Set(), setsOpen: false,
+    view: 'heroes', emblems: null, emblemsLoading: false, slotFx: {}, effects: [], items: {}, icons: {}, spells: null, spellsLoading: false, heroTab: 'items', gem: null, heroes: null, heroLoading: false, hero: null, heroData: null, heroSlot: null, fx: new Set(), setsOpen: false,
   };
 
   // replaceChildren(null) writes the text "null" into the page (it was showing under «Иконки способностей»):
@@ -49,8 +49,6 @@
     return r;
   }
 
-  const hue = (s) => { let x = 0; for (const c of s) x = (x * 31 + c.charCodeAt(0)) % 360; return x; };
-  const tint = (s) => `linear-gradient(135deg, hsl(${200 + hue(s) % 40} 52% 26%), hsl(${215 + (hue(s) + 50) % 35} 56% 14%))`;
 
   // ---------- pictures from the player's own game ----------
   // A tile draws its colour at once and an <img> that fades in when the picture arrives; the
@@ -112,64 +110,63 @@
     $('folderBtn').disabled = !S.connected;
   }
 
-  // The left list is in groups, as the game's own inventory has them. «Герой» holds what belongs to a hero
-  // (Предметы, Эмблемы, Иконки способностей); the free cosmetics (slots read from the game) follow in theirs.
-  // A slot that is in no group (one Valve adds later) goes to «Прочее». A group folds with a click on its title.
+  // The left list, as the design has it: «Герой», «Эмблемы», then a line for each group of the free cosmetics (the
+  // slots read from the game). A group's slots are the tabs at the top of its screen. A slot that is in no group
+  // (one Valve adds later) goes to «Прочее».
   const RAIL_GROUPS = [
-    { id: 'units', label: 'Спутники и постройки', icon: 'pets', slots: ['courier', 'ward', 'radiantcreeps', 'direcreeps', 'radiantsiegecreeps', 'diresiegecreeps', 'radianttowers', 'diretowers'] },
+    { id: 'units', label: 'Спутники', icon: 'pets', slots: ['courier', 'ward', 'radiantcreeps', 'direcreeps', 'radiantsiegecreeps', 'diresiegecreeps', 'radianttowers', 'diretowers'] },
     { id: 'world', label: 'Игровой мир', icon: 'landscape', slots: ['terrain', 'weather'] },
     { id: 'ui', label: 'Интерфейс', icon: 'dashboard', slots: ['hud_skin', 'loading_screen', 'versus_screen'] },
     { id: 'sound', label: 'Звук', icon: 'music_note', slots: ['music', 'announcer', 'mega_kills'] },
     { id: 'fx', label: 'Эффекты', icon: 'auto_awesome', slots: ['streak_effect'] },
   ];
-  S.railShut = S.railShut || new Set();
+  /** The groups that have slots in this game, each with them. */
+  function railGroups() {
+    const emblemSlots = new Set((S.emblems || []).map((g) => g.slot)); // shown under «Эмблемы»
+    const free = (S.slots || []).filter((s) => !emblemSlots.has(s.slot));
+    const byId = new Map(free.map((s) => [s.slot, s]));
+    const placed = new Set();
+    const out = [];
+    for (const g of RAIL_GROUPS) {
+      const list = g.slots.map((id) => byId.get(id)).filter(Boolean);
+      list.forEach((s) => placed.add(s.slot));
+      if (list.length) out.push({ id: g.id, label: g.label, icon: g.icon, list });
+    }
+    const rest = free.filter((s) => !placed.has(s.slot));
+    if (rest.length) out.push({ id: 'misc', label: 'Прочее', icon: 'category', list: rest });
+    return out;
+  }
+  const groupOf = (slot) => railGroups().find((g) => g.list.some((s) => s.slot === slot)) || null;
+  S.groupSlot = {}; // the slot last opened in each group: the group opens on it again
+  function openSlot(slot) {
+    const g = groupOf(slot);
+    if (g) S.groupSlot[g.id] = slot;
+    S.view = 'slot'; S.current = slot; S.query = ''; $('search').value = '';
+    renderRail(); renderContent();
+  }
   function renderRail() {
     const rail = $('rail');
     rail.hidden = S.tab !== 'cos';
     if (S.tab !== 'cos') return;
     rail.replaceChildren();
-    if (!S.connected) { rail.append(h('div', { class: 'rail-label', text: 'Косметика' })); return; }
-    const group = (id, label, dot, items) => {
-      const shut = S.railShut.has(id);
-      rail.append(h('button', { class: 'rail-group' + (shut ? ' shut' : ''), type: 'button', 'aria-expanded': shut ? 'false' : 'true',
-        onclick: () => { if (S.railShut.has(id)) S.railShut.delete(id); else S.railShut.add(id); renderRail(); } },
-        icon('expand_more'), h('span', { class: 'grow', text: label }), shut && dot ? h('i', { class: 'rail-dot', title: 'Внутри есть выбранное' }) : null));
-      if (!shut) rail.append(...items);
-    };
-    const slotItem = (s) => {
-      const m = meta(s.slot);
-      return h('button', {
-        class: 'rail-item' + (S.view === 'slot' && S.current === s.slot ? ' active' : ''), type: 'button',
-        onclick: () => { S.view = 'slot'; S.current = s.slot; S.query = ''; $('search').value = ''; renderRail(); renderContent(); },
-      }, icon(m.icon), h('span', { class: 'grow', text: m.label }), S.picks[s.slot] ? h('i', { class: 'rail-dot', title: 'Выбрано' }) : null);
-    };
-    const hasItems = Object.keys(S.items).length > 0, hasEmblems = (S.emblems || []).some((g) => S.picks[g.slot]), hasIcons = Object.keys(S.icons).length > 0;
-    group('hero', 'Герой', hasItems || hasEmblems || hasIcons, [
-      h('button', { class: 'rail-item' + (S.view === 'heroes' ? ' active' : ''), type: 'button', onclick: openHeroes },
-        icon('accessibility_new'), h('span', { class: 'grow', text: 'Предметы' }), hasItems ? h('i', { class: 'rail-dot', title: 'Есть выбранные предметы' }) : null),
-      h('button', { class: 'rail-item' + (S.view === 'emblems' ? ' active' : ''), type: 'button', onclick: openEmblems },
-        icon('military_tech'), h('span', { class: 'grow', text: 'Эмблемы' }), hasEmblems ? h('i', { class: 'rail-dot', title: 'Выбрано' }) : null),
-      h('button', { class: 'rail-item' + (S.view === 'spells' ? ' active' : ''), type: 'button', onclick: openSpells },
-        icon('stars'), h('span', { class: 'grow', text: 'Иконки способностей' }), hasIcons ? h('i', { class: 'rail-dot', title: 'Есть выбранные иконки' }) : null),
-    ]);
+    if (!S.connected) return;
+    const item = (active, ic, label, dot, onclick) => h('button', { class: 'rail-item' + (active ? ' active' : ''), type: 'button', onclick },
+      icon(ic), h('span', { class: 'grow', text: label }), dot ? h('i', { class: 'rail-dot', title: 'Есть выбранное' }) : null);
+    const hasHero = Object.keys(S.items).length > 0 || Object.keys(S.icons).length > 0;
+    const hasEmblems = (S.emblems || []).some((g) => S.picks[g.slot]);
+    rail.append(item(S.view === 'heroes', 'person', 'Герой', hasHero, openHeroes), item(S.view === 'emblems', 'star', 'Эмблемы', hasEmblems, openEmblems));
     if (S.loading) { rail.append(h('div', { class: 'rail-hint', text: 'Читаю таблицу предметов игры…' })); return; }
-    const emblemSlots = new Set((S.emblems || []).map((g) => g.slot)); // shown under «Эмблемы»
-    const free = (S.slots || []).filter((s) => !emblemSlots.has(s.slot));
-    const byId = new Map(free.map((s) => [s.slot, s]));
-    const placed = new Set();
-    for (const g of RAIL_GROUPS) {
-      const list = g.slots.map((id) => byId.get(id)).filter(Boolean);
-      list.forEach((s) => placed.add(s.slot));
-      if (list.length) group(g.id, g.label, list.some((s) => S.picks[s.slot]), list.map(slotItem));
+    const cur = S.view === 'slot' ? groupOf(S.current) : null;
+    for (const g of railGroups()) {
+      rail.append(item(!!cur && cur.id === g.id, g.icon, g.label, g.list.some((s) => S.picks[s.slot]),
+        () => openSlot((g.list.find((s) => s.slot === S.groupSlot[g.id]) || g.list[0]).slot)));
     }
-    const rest = free.filter((s) => !placed.has(s.slot));
-    if (rest.length) group('misc', 'Прочее', rest.some((s) => S.picks[s.slot]), rest.map(slotItem));
   }
 
   // The entrance animation plays when the screen changes (another tab, category, hero) or when the content arrives
   // after a loader, not on every redraw: a pick redraws the grid and the cards must not jump again.
   let lastViewKey = '', lastWasEmpty = false, enterTimer = 0;
-  const viewKey = () => { const id = (v) => (v && typeof v === 'object' ? (v.id ?? v.hero ?? v.slot ?? '') : (v ?? '')); return [S.tab, S.view, S.current, id(S.hero), id(S.spellHero), id(S.heroSlot)].join('|'); };
+  const viewKey = () => { const id = (v) => (v && typeof v === 'object' ? (v.id ?? v.hero ?? v.slot ?? '') : (v ?? '')); return [S.tab, S.view, S.current, id(S.hero), S.heroTab, id(S.heroSlot)].join('|'); };
   function playEnter(c) {
     clearTimeout(enterTimer);
     c.classList.remove('enter'); void c.offsetWidth; c.classList.add('enter');
@@ -318,7 +315,7 @@
       h('span', { class: 'fxlabel', text: kinetic ? 'Кинетики' : 'Эффекты' }),
       h('span', { class: 'gemnow-text dim', text: on.length ? `Выбрано: ${on.length}` : 'Ничего не выбрано' }),
       h('div', { class: 'grow' }),
-      on.length ? h('button', { class: 'pillbtn small', type: 'button', onclick: () => apply(fx.filter((id) => !mine.has(id))) }, kinetic ? 'Убрать кинетики' : 'Убрать все эффекты') : null);
+      on.length ? h('button', { class: 'pillbtn', type: 'button', onclick: () => apply(fx.filter((id) => !mine.has(id))) }, kinetic ? 'Убрать кинетики' : 'Убрать все эффекты') : null);
     return { row, body: [grid], search: list.length > 12 ? h('label', { class: 'search' }, icon('search'), input) : null };
   }
 
@@ -334,7 +331,6 @@
       return;
     }
     if (S.view === 'heroes') { renderHeroes(c); return; }
-    if (S.view === 'spells') { renderSpells(c); return; }
     if (S.view === 'emblems') { renderEmblems(c); return; }
     if (S.loading) { c.replaceChildren(h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю таблицу предметов…' }))); return; }
     const slot = (S.slots || []).find((s) => s.slot === S.current);
@@ -353,10 +349,9 @@
         const on = picked === o.id;
         const card = h('button', { class: 'card' + (on ? ' picked' : ''), type: 'button', title: o.name, onclick: () => pick(slot.slot, on ? null : o.id) },
           pic('item', o.id),
-          on ? h('span', { class: 'badge' }, icon('check_circle'), 'Надето') : null,
+          on ? h('span', { class: 'badge', text: 'Надето' }) : null,
           on && fxSlot ? fxTag(o) : null,
           h('div', { class: 'name', text: o.name }), h('div', { class: 'sub', text: m.label }));
-        card.style.setProperty('--tint', tint(o.name));
         return { id: o.id, el: fxSlot ? withBrush(card, { on: on && fxIds.length > 0, ids: on ? fxIds : [], title: o.name, apply: (next) => pickFx(slot.slot, o.id, next), courier: true }) : card };
       });
       if (!fxSlot) return cards.map((x) => x.el);
@@ -367,18 +362,22 @@
         const on = !picked;
         const card = h('button', { class: 'card' + (on ? ' picked' : ''), type: 'button', title: 'Стандартный курьер', onclick: () => pick(slot.slot, null) },
           pic('item', slot.base),
-          on ? h('span', { class: 'badge' }, icon('check_circle'), 'Надето') : null,
+          on ? h('span', { class: 'badge', text: 'Надето' }) : null,
           on ? fxTag(null) : null,
           h('div', { class: 'name', text: 'Стандартный курьер' }), h('div', { class: 'sub', text: m.label }));
-        card.style.setProperty('--tint', tint('default'));
         def.push(withBrush(card, { on: on && fxIds.length > 0, ids: on ? fxIds : [], title: 'Стандартный курьер', apply: (next) => pickFx(slot.slot, null, next), courier: true }));
       }
       return [...lead, ...def, ...rest];
     };
+    // the slots of the group this one is in: tabs under the heading
+    const g = groupOf(slot.slot);
+    const many = !!g && g.list.length > 1;
     c.replaceChildren(
       h('div', { class: 'head' },
-        h('h1', { text: m.label }), h('span', { class: 'count', text: `${opts.length} из ${slot.options.length}` }), h('div', { class: 'line' }),
-        picked ? h('button', { class: 'btn', type: 'button', onclick: () => pick(slot.slot, null), text: 'Сбросить на стандартный' }) : null),
+        h('h1', { text: many ? g.label : m.label }), h('span', { class: 'count', text: `${opts.length} из ${slot.options.length}` }), h('div', { class: 'grow' }),
+        picked ? h('button', { class: 'btn ghost', type: 'button', onclick: () => pick(slot.slot, null), text: 'Сбросить на стандартный' }) : null),
+      many ? h('div', { class: 'seg' }, g.list.map((x) => h('button', { class: x.slot === slot.slot ? 'active' : '', type: 'button', onclick: () => openSlot(x.slot) },
+        meta(x.slot).label, S.picks[x.slot] ? h('i', { class: 'rail-dot', title: 'Выбрано' }) : null))) : null,
       opts.length || (fxSlot && !q) ? h('div', { class: 'grid' }, courierCards()) : h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' })));
   }
 
@@ -434,29 +433,23 @@
       if (!opts.length) continue;
       const picked = S.picks[g.slot];
       kids.push(h('div', { class: 'head' },
-        h('h1', { text: 'Эмблемы' }), h('span', { class: 'count', text: `${opts.length} из ${g.options.length}` }), h('div', { class: 'line' }),
-        picked ? h('button', { class: 'btn', type: 'button', onclick: () => pickEmblem(g.slot, null), text: 'Сбросить на стандартную' }) : null));
+        h('h1', { text: 'Эмблемы' }), h('span', { class: 'count', text: `${opts.length} из ${g.options.length}` }), h('div', { class: 'grow' }),
+        picked ? h('button', { class: 'btn ghost', type: 'button', onclick: () => pickEmblem(g.slot, null), text: 'Сбросить на стандартную' }) : null));
       kids.push(h('p', { class: 'rail-hint', text: 'Можно надеть только одну эмблему: выбор другой снимает текущую. Эффект атаки у эмблем с пометкой «эффект атаки» включается сам, когда ты их надеваешь. Эффект Diretide видят и другие игроки без своей эмблемы: файлом сделать его только своим нельзя.' }));
       if (!g.base) kids.push(h('p', { class: 'rail-hint', text: 'У этого слота нет бесплатного базового предмета, поэтому заменить эмблему не получится.' }));
       kids.push(h('div', { class: 'grid' }, opts.map((o) => {
         const on = picked === o.id;
         const card = h('button', { class: 'card' + (on ? ' picked' : ''), type: 'button', title: o.name, onclick: () => pickEmblem(g.slot, on ? null : o.id) },
           pic('item', o.id),
-          on ? h('span', { class: 'badge' }, icon('check_circle'), 'Надето') : null,
+          on ? h('span', { class: 'badge', text: 'Надето' }) : null,
           h('div', { class: 'name', text: o.name }), h('div', { class: 'sub', text: o.attack ? 'Эмблема · эффект атаки' : 'Эмблема · без эффекта атаки' }));
-        card.style.setProperty('--tint', tint(o.name));
         return card;
       })));
     }
     c.replaceChildren(...(kids.length ? kids : [h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' }))]));
   }
 
-  // ---------- ability icons («Иконки способностей») ----------
-  function openSpells() {
-    S.view = 'spells'; S.spellHero = null; S.query = ''; $('search').value = '';
-    renderRail(); renderContent();
-  }
-
+  // ---------- ability icons: the third tab of a hero's screen ----------
   async function loadSpells() {
     S.spellsLoading = true; renderContent();
     const r = await call(api.spellList);
@@ -480,12 +473,14 @@
     } finally { picking = false; }
   }
 
-  function renderSpells(c) {
+  /** The open hero's abilities, each with the icons it can take. */
+  function spellsPane() {
     if (S.spellsLoading || !S.spells) {
-      c.replaceChildren(h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю иконки способностей…' })));
-      if (!S.spells && !S.spellsLoading) loadSpells();
-      return;
+      if (!S.spells && !S.spellsLoading) queueMicrotask(loadSpells); // not from inside the paint it is called by
+      return [h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю иконки способностей…' }))];
     }
+    const hero = S.spells.find((x) => x.hero === S.hero);
+    if (!hero) return [h('div', { class: 'empty' }, icon('image_not_supported'), h('h2', { text: 'У героя нет альтернативных иконок' }))];
     const picked = (a) => S.icons[a.ability] || null;
     // Valve stores many of these pictures compressed: reading them needs the extra content from the settings
     const needTool = S.tool && S.tool.available && !S.tool.ready
@@ -493,41 +488,18 @@
         h('b', { text: 'Картинок иконок может не быть' }),
         h('p', { text: 'Часть иконок Valve хранит сжатыми, и без дополнительного контента (Source 2 Viewer, около 50 МБ) их не прочитать: останутся только подписи. Выбор иконок при этом работает.' }),
         h('button', { class: 'btn sm primary', type: 'button', disabled: S.toolBusy, onclick: installTool }, icon('download'), 'Скачать'))) : null;
-    if (!S.spellHero) {
-      const q = S.query.trim().toLowerCase();
-      const list = S.spells.filter((x) => !q || x.name.toLowerCase().includes(q));
-      c.replaceChildren(
-        h('div', { class: 'head' }, h('h1', { text: 'Иконки способностей' }), h('span', { class: 'count', text: `${list.length} из ${S.spells.length}` }), h('div', { class: 'line' })),
-        needTool,
-        list.length ? h('div', { class: 'grid heroes' }, list.map((x) => {
-          const n = x.abilities.filter(picked).length;
-          const card = h('button', { class: 'card hero' + (n ? ' picked' : ''), type: 'button', onclick: () => { S.spellHero = x.hero; renderContent(); } },
-            pic('hero', x.hero),
-            h('div', { class: 'name', text: x.name }),
-            h('div', { class: 'sub', text: n ? `Изменено ${n} из ${x.abilities.length}` : plural(x.abilities.length, 'способность', 'способности', 'способностей') }));
-          card.style.setProperty('--tint', tint(x.name));
-          return card;
-        })) : h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: S.spells.length ? 'Ничего не найдено' : 'У героев нет альтернативных иконок' })));
-      return;
-    }
-    const hero = S.spells.find((x) => x.hero === S.spellHero);
-    if (!hero) { S.spellHero = null; renderSpells(c); return; }
-    const back = h('button', { class: 'btn', type: 'button', onclick: () => { S.spellHero = null; renderContent(); } }, icon('arrow_back'), 'Герои');
-    const any = hero.abilities.some(picked);
-    c.replaceChildren(
-      h('div', { class: 'head' }, back, h('h1', { text: hero.name }), h('span', { class: 'count', text: plural(hero.abilities.length, 'способность', 'способности', 'способностей') }), h('div', { class: 'line' }),
-        any ? h('button', { class: 'btn', type: 'button', onclick: async () => { for (const a of hero.abilities) if (picked(a)) await spellPick(a.ability, null); } }, 'Сбросить героя') : null),
-      needTool,
-      ...hero.abilities.map((a) => h('div', { class: 'abrow' },
-        h('div', { class: 'abtitle' }, h('b', { text: a.name }), h('span', { class: 'count', text: a.ability })),
-        h('div', { class: 'spellrow' }, a.variants.map((v) => {
-          const on = (picked(a) || a.ability) === v.icon;
-          return h('button', { class: 'spelltile' + (on ? ' on' : ''), type: 'button', title: v.label || 'Обычная иконка',
-            onclick: () => spellPick(a.ability, v.icon === a.ability ? null : v.icon) },
-            pic('spell', v.icon),
-            on ? h('span', { class: 'spellmark' }, icon('check_circle')) : null,
-            h('span', { class: 'spelllabel', text: v.label || 'Обычная' }));
-        })))));
+    const reset = hero.abilities.some(picked) ? h('div', { class: 'fxrow' }, h('div', { class: 'grow' }),
+      h('button', { class: 'pillbtn', type: 'button', onclick: async () => { for (const a of hero.abilities) if (picked(a)) await spellPick(a.ability, null); } }, 'Сбросить иконки')) : null;
+    return [needTool, reset, ...hero.abilities.map((a) => h('div', { class: 'abrow' },
+      h('div', { class: 'abtitle' }, h('b', { text: a.name }), h('span', { text: a.ability })),
+      h('div', { class: 'spellrow' }, a.variants.map((v) => {
+        const on = (picked(a) || a.ability) === v.icon;
+        return h('button', { class: 'spelltile' + (on ? ' on' : ''), type: 'button', title: v.label || 'Обычная иконка',
+          onclick: () => spellPick(a.ability, v.icon === a.ability ? null : v.icon) },
+          pic('spell', v.icon),
+          on ? h('span', { class: 'spellmark' }, icon('check_circle')) : null,
+          h('span', { class: 'spelllabel', text: v.label || 'Обычная' }));
+      }))))];
   }
 
   function openHeroes() {
@@ -544,7 +516,7 @@
   }
 
   async function openHero(id, name) {
-    S.pickerOpen = false; S.hero = id; S.heroName = name || id; S.heroData = null; S.heroSlot = null; S.query = ''; $('search').value = ''; S.fx = new Set(); S.setsOpen = false;
+    S.pickerOpen = false; S.hero = id; S.heroName = name || id; S.heroTab = 'items'; S.heroData = null; S.heroSlot = null; S.query = ''; $('search').value = ''; S.fx = new Set(); S.setsOpen = false;
     renderContent();
     await loadHero();
   }
@@ -664,8 +636,8 @@
     const row = h('div', { class: 'fxrow gemrow' },
       h('span', { class: 'fxlabel', text: 'Цвет гема' }), now,
       h('div', { class: 'grow' }),
-      h('button', { class: 'pillbtn small' + (GP.panel ? ' active' : ''), type: 'button', onclick: () => { GP.panel = !GP.panel; if (GP.panel) GP.hsv = rgb2hsv(gemOf(gemSet) || def); renderPicker(); } }, icon('palette'), 'Свой цвет'),
-      cur ? h('button', { class: 'pillbtn small', type: 'button', onclick: () => set(null) }, 'Сбросить цвет') : null);
+      h('button', { class: 'pillbtn' + (GP.panel ? ' active' : ''), type: 'button', onclick: () => { GP.panel = !GP.panel; if (GP.panel) GP.hsv = rgb2hsv(gemOf(gemSet) || def); renderPicker(); } }, icon('palette'), 'Свой цвет'),
+      cur ? h('button', { class: 'pillbtn', type: 'button', onclick: () => set(null) }, 'Сбросить цвет') : null);
 
     const body = [];
     if (GP.panel) {
@@ -703,21 +675,30 @@
     return { row, body };
   }
 
+  // The heroes: a tile each. The grid comes sorted by name; «изменённые сверху» lifts the ones that wear something.
+  const HERO_SORT = 'hero-sort';
+  S.heroSort = (() => { try { return localStorage.getItem(HERO_SORT) === 'name' ? 'name' : 'changed'; } catch { return 'changed'; } })();
   function renderHeroes(c) {
     if (S.hero) { renderHero(c); return; }
     if (S.heroLoading || !S.heroes) { c.replaceChildren(h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю таблицу предметов…' }))); if (!S.heroes && !S.heroLoading) loadHeroes(); return; }
     const q = S.query.trim().toLowerCase();
     const list = S.heroes.filter((x) => !q || x.name.toLowerCase().includes(q));
+    const shown = S.heroSort === 'changed' ? [...list.filter((x) => x.picked), ...list.filter((x) => !x.picked)] : list;
+    const sort = h('button', { class: 'btn', type: 'button', title: 'Сменить порядок', onclick: () => {
+      S.heroSort = S.heroSort === 'changed' ? 'name' : 'changed';
+      try { localStorage.setItem(HERO_SORT, S.heroSort); } catch { /* the order is then kept for this run only */ }
+      renderContent();
+    } }, `Сортировка: ${S.heroSort === 'changed' ? 'изменённые сверху' : 'по алфавиту'}`, icon('swap_vert'));
     c.replaceChildren(
-      h('div', { class: 'head' }, h('h1', { text: 'Предметы' }), h('span', { class: 'count', text: `${list.length} из ${S.heroes.length}` }), h('div', { class: 'line' })),
-      list.length ? h('div', { class: 'grid heroes' }, list.map((x) => {
-        const card = h('button', { class: 'card hero' + (x.picked ? ' picked' : ''), type: 'button', onclick: () => openHero(x.id, x.name) },
-          pic('hero', x.id),
-          h('div', { class: 'name', text: x.name }),
-          h('div', { class: 'sub', text: x.picked ? `Изменено ${x.picked} из ${x.slots}` : plural(x.sets, 'набор', 'набора', 'наборов') }));
-        card.style.setProperty('--tint', tint(x.name));
-        return card;
-      })) : h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' })));
+      h('div', { class: 'head' }, h('h1', { text: 'Герои' }), h('span', { class: 'count', text: `${list.length} из ${S.heroes.length}` }), h('div', { class: 'grow' }), sort),
+      list.length ? h('div', { class: 'herogrid' }, shown.map((x) => h('button', { class: 'herotile' + (x.picked ? ' picked' : ''), type: 'button', onclick: () => openHero(x.id, x.name) },
+        h('span', { class: 'letter', text: x.name.slice(0, 1) }),
+        pic('hero', x.id),
+        x.picked ? h('i', { class: 'herodot' }) : null,
+        h('span', { class: 'herocap' },
+          h('span', { class: 'name', text: x.name }),
+          h('span', { class: 'sub', text: x.picked ? `Изменено ${x.picked} из ${x.slots}` : plural(x.sets, 'набор', 'набора', 'наборов') })))))
+        : h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' })));
   }
 
   /** Small tags saying which effects and style are on a worn item. */
@@ -730,7 +711,7 @@
     const names = [...group(all.filter((e) => !e.kinetic), 'Эффектов'), ...group(all.filter((e) => e.kinetic), 'Кинетиков')];
     if (style > 0 && opt && opt.styles && opt.styles.length > 1) names.push(`Стиль ${style + 1}`);
     if (!names.length) return null;
-    return h('div', { class: 'fxtags', title: 'Добавлено: ' + all.map((e) => e.name).concat(style > 0 ? [`Стиль ${style + 1}`] : []).join(', ') }, icon('auto_awesome'), names.map((n) => h('span', { text: n })));
+    return h('span', { class: 'fxtags', title: 'Добавлено: ' + all.map((e) => e.name).concat(style > 0 ? [`Стиль ${style + 1}`] : []).join(', ') }, names.map((n) => h('span', { text: n })));
   }
 
   // The hero preview: a panel that stays on the hero screen (ui/preview.js) and is built again by
@@ -756,50 +737,61 @@
   }
 
 
-  // The hero screen: a main window with one big tile per slot (what is worn now), and a picker
-  // window for the slot that was clicked. Effects and styles live in the picker, next to the items.
+  // The hero screen: the preview on the left, and on the right what the tab at the top says: a row for each slot
+  // (what is worn there now), the effects of the worn items, or the ability icons. A click on a row opens the
+  // window of that slot, where the items, effects and gems are chosen.
   function renderHero(c) {
     const name = S.heroName || S.hero;
     const back = h('button', { class: 'btn', type: 'button', onclick: () => { S.hero = null; S.pickerOpen = false; S.query = ''; $('search').value = ''; renderContent(); if (!S.heroes) loadHeroes(); } }, icon('arrow_back'), 'Герои');
     const d = S.heroData;
     if (!d) { c.replaceChildren(h('div', { class: 'head' }, back, h('h1', { text: name })), h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю предметы героя…' }))); renderPicker(); return; }
+    const tab = ['items', 'fx', 'icons'].includes(S.heroTab) ? S.heroTab : 'items';
     const any = d.slots.some((x) => x.picked);
-    const head = h('div', { class: 'head' }, back, h('h1', { text: name }), h('span', { class: 'count', text: plural(d.slots.length, 'слот', 'слота', 'слотов') }), h('div', { class: 'line' }),
-      d.sets.length ? h('button', { class: 'btn', type: 'button', onclick: () => { S.setsOpen = !S.setsOpen; renderContent(); } }, icon('inventory_2'), `Наборы · ${d.sets.length}`) : null,
-      any ? h('button', { class: 'btn', type: 'button', onclick: async () => { if (picking) return; picking = true; try { await heroDone(await call(api.heroReset, S.hero), 'Герой сброшен. Нажми «Применить косметику».'); } finally { picking = false; } } }, 'Сбросить героя') : null);
+    const head = h('div', { class: 'head' }, back, h('h1', { text: name }), h('span', { class: 'count', text: plural(d.slots.length, 'слот', 'слота', 'слотов') }), h('div', { class: 'grow' }),
+      d.sets.length ? h('button', { class: 'btn', type: 'button', 'aria-expanded': S.setsOpen && tab === 'items' ? 'true' : 'false',
+        onclick: () => { S.setsOpen = tab === 'items' ? !S.setsOpen : true; S.heroTab = 'items'; renderContent(); } }, `Наборы · ${d.sets.length}`) : null,
+      any ? h('button', { class: 'btn ghost', type: 'button', onclick: async () => { if (picking) return; picking = true; try { await heroDone(await call(api.heroReset, S.hero), 'Герой сброшен. Нажми «Применить косметику».'); } finally { picking = false; } } }, 'Сбросить героя') : null);
+    const tabBtn = (id, label) => h('button', { class: tab === id ? 'active' : '', type: 'button', onclick: () => { S.heroTab = id; renderContent(); } }, label);
+    const seg = h('div', { class: 'seg' }, tabBtn('items', `Предметы · ${d.slots.length}`), tabBtn('fx', 'Эффекты'), tabBtn('icons', 'Иконки способностей'));
+
+    const wornOf = (sl) => (sl.picked ? sl.options.find((o) => o.id === sl.picked.itemId) : null) || null;
+    /** One slot: what is on it, and the button that opens its window (on the effects, from the «Эффекты» tab). */
+    const slotRow = (sl, fx) => {
+      const worn = wornOf(sl);
+      const open = () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; S.fxq = ''; S.pickerTab = fx ? 'fx' : worn && gemFor(worn) ? 'gems' : 'items'; renderContent(); };
+      return h('div', { class: 'row' + (worn ? ' worn' : ''), title: worn ? worn.name : sl.slotLabel, onclick: open },
+        h('div', { class: 'thumb' + (worn ? '' : ' dim') }, icon(sl.icon), worn ? pic('item', worn.id) : null),
+        h('div', { class: 'rowtext' },
+          h('div', { class: 'rowlabel' }, h('span', { text: sl.slotLabel }), fxTags(sl.picked, d.effects, worn)),
+          h('div', { class: 'rowname', text: worn ? worn.name : 'Стандартный' })),
+        fx ? null : h('span', { class: 'rowstate' + (worn ? ' on' : ''), text: worn ? 'Надето' : 'Не изменено' }),
+        h('button', { class: 'btn sm', type: 'button', onclick: (e) => { e.stopPropagation(); open(); } }, fx ? 'Эффекты' : 'Сменить'));
+    };
 
     const parts = [];
-    if (S.setsOpen && d.sets.length) {
-      parts.push(h('div', { class: 'grid sets' }, d.sets.map((set) => {
-        const card = h('button', { class: 'card', type: 'button', title: set.pieces.map((p) => p.name + (p.fits ? '' : ` (${p.reason})`)).join('\n'),
+    if (tab === 'icons') parts.push(...spellsPane());
+    else if (!d.slots.length) parts.push(h('div', { class: 'empty' }, icon('category'), h('h2', { text: 'У героя нет слотов для замены' })));
+    else if (tab === 'fx') {
+      const worn = d.slots.filter(wornOf);
+      if (!heroFxList(false).length && !heroFxList(true).length) parts.push(h('div', { class: 'empty' }, icon('auto_awesome'), h('h2', { text: 'Эффектов нет' })));
+      else if (!worn.length) {
+        parts.push(h('div', { class: 'empty' }, icon('auto_awesome'), h('h2', { text: 'Сначала надень предмет' }),
+          h('p', { text: 'Эффекты добавляются к надетому предмету: выбери его во вкладке «Предметы», и он появится здесь.' }),
+          h('button', { class: 'btn primary', type: 'button', onclick: () => { S.heroTab = 'items'; renderContent(); } }, 'К предметам')));
+      } else {
+        parts.push(h('p', { class: 'rownote', text: 'Эффекты добавляются к надетым предметам. Кнопка открывает окно предмета на вкладке эффектов.' }));
+        parts.push(h('div', { class: 'rows' }, worn.map((sl) => slotRow(sl, true))));
+      }
+    } else {
+      if (S.setsOpen && d.sets.length) {
+        parts.push(h('div', { class: 'setlist' }, d.sets.map((set) => h('button', { class: 'setchip', type: 'button', title: set.pieces.map((p) => p.name + (p.fits ? '' : ` (${p.reason})`)).join('\n'),
           onclick: async () => { if (picking) return; picking = true; try { await heroDone(await call(api.heroSet, set.id), 'Набор выбран. Нажми «Применить косметику».'); } finally { picking = false; } } },
-          h('div', { class: 'name', text: set.name }), h('div', { class: 'sub', text: `${set.fit} из ${set.pieces.length} предметов` }));
-        card.style.setProperty('--tint', tint(set.name));
-        return card;
-      })));
-    }
-
-    if (!d.slots.length) parts.push(h('div', { class: 'empty' }, icon('category'), h('h2', { text: 'У героя нет слотов для замены' })));
-    else {
-      const slotCard = (sl) => {
-        const worn = sl.picked ? sl.options.find((o) => o.id === sl.picked.itemId) : null;
-      const card = h('button', { class: 'card slot' + (worn ? ' picked' : ''), type: 'button', title: sl.slotLabel,
-        onclick: () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; S.fxq = ''; S.pickerTab = worn && gemFor(worn) ? 'gems' : 'items'; renderContent(); } },
-        worn ? pic('item', worn.id) : null,
-        worn ? null : h('span', { class: 'slotbig' }, icon(sl.icon)),
-        h('span', { class: 'slotchip' }, icon(sl.icon), sl.slotLabel),
-        worn ? h('span', { class: 'badge' }, icon('check_circle'), 'Надето') : null,
-        fxTags(sl.picked, d.effects, worn),
-        h('div', { class: 'name', text: worn ? worn.name : 'Стандартный' }),
-        h('div', { class: 'sub', text: worn ? 'Нажми, чтобы сменить' : 'Нажми, чтобы выбрать · ' + plural(sl.options.length, 'предмет', 'предмета', 'предметов') }));
-      card.style.setProperty('--tint', tint(sl.slotLabel + (worn ? worn.name : '')));
-      return card;
-      };
-      parts.push(h('div', { class: 'grid slots' }, d.slots.map(slotCard)));
+          h('b', { text: set.name }), h('span', { text: `${set.fit} из ${set.pieces.length} предметов` })))));
+      }
+      parts.push(h('div', { class: 'rows' }, d.slots.map((sl) => slotRow(sl, false))));
     }
     const top = c.scrollTop;
-    // left: the hero as he will look, always there; right: his slots (and sets) to choose from
-    c.replaceChildren(head, h('div', { class: 'hero-split' }, previewStage().el, h('div', { class: 'hero-side' }, parts)));
+    c.replaceChildren(head, seg, h('div', { class: 'hero-split' }, previewStage().el, h('div', { class: 'hero-side' }, parts)));
     c.scrollTop = top;
     renderPicker();
     refreshPreview();
@@ -845,11 +837,10 @@
             await heroPick(slot.slot, on ? null : o.id, buildFx([], 0));
           } },
           pic('item', o.id),
-          on ? h('span', { class: 'badge' }, icon('check_circle'), 'Надето') : null,
+          on ? h('span', { class: 'badge', text: 'Надето' }) : null,
           o.note ? h('span', { class: 'warnmark ' + o.note.status, title: o.note.text }, icon(o.note.status === 'broken' ? 'error' : 'warning')) : null,
           on ? fxTags(slot.picked, d.effects, o) : null,
           h('div', { class: 'name', text: o.name }), h('div', { class: 'sub', text: slot.slotLabel }));
-        card.style.setProperty('--tint', tint(o.name));
         return card;
       }) : [h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' }))]));
       fillPics([grid]);
@@ -861,7 +852,7 @@
     if (pickedOpt && pickedOpt.styles && pickedOpt.styles.length > 1) {
       rows.push(h('div', { class: 'fxrow' }, h('span', { class: 'fxlabel', text: 'Стиль' }),
         ...pickedOpt.styles.map((_, i) => h('button', {
-          class: 'pillbtn small' + (style === i ? ' active' : ''), type: 'button',
+          class: 'pillbtn' + (style === i ? ' active' : ''), type: 'button',
           onclick: () => heroPick(slot.slot, picked, buildFx(fx, i)),
         }, `Стиль ${i + 1}`))));
     }
@@ -879,15 +870,15 @@
         h('div', { class: 'notice-more' },
           h('p', { text: texts.length === 1 ? texts[0] : 'Такие предметы работают с оговорками: наведи курсор на значок, чтобы увидеть, что именно не так с конкретным предметом.' }),
           h('p', { class: 'dim', text: 'Предмет всё равно можно надеть. Если он выглядит не так, как нужно, его можно снять кнопкой «Снять».' })))) : null;
-    const tabBtn = ([id, label, n]) => h('button', { class: 'pillbtn small' + (tab === id ? ' active' : ''), type: 'button',
+    const tabBtn = ([id, label, n]) => h('button', { class: tab === id ? 'active' : '', type: 'button',
       onclick: () => { S.pickerTab = id; S.fxq = ''; renderPicker(); } }, label, h('span', { class: 'tabcount', text: String(n) }));
     const win = h('div', { class: 'picker', role: 'dialog', 'aria-modal': 'true' },
       h('div', { class: 'picker-head' },
         icon(slot.icon), h('h2', { text: `${S.heroName || S.hero}: ${slot.slotLabel}` }),
-        tabs.length > 1 ? h('div', { class: 'picker-tabs' }, tabs.map(tabBtn)) : h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
+        tabs.length > 1 ? h('div', { class: 'seg' }, tabs.map(tabBtn)) : h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
         h('div', { class: 'grow' }),
         pane ? pane.search || null : h('label', { class: 'search' }, icon('search'), input),
-        picked ? h('button', { class: 'btn', type: 'button', onclick: () => { closePicker(); heroPick(slot.slot, null, []); } }, 'Снять') : null,
+        picked ? h('button', { class: 'btn sm', type: 'button', onclick: () => { closePicker(); heroPick(slot.slot, null, []); } }, 'Снять') : null,
         h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closePicker }, icon('close'))),
       pane ? h('div', { class: 'picker-fx' }, pane.row) : h('div', { class: 'picker-fx' }, notice, rows),
       pane ? h('div', { class: 'picker-body gems', 'data-tab': tab }, pane.body) : h('div', { class: 'picker-body', 'data-tab': tab }, grid));
@@ -951,7 +942,7 @@
     S.tool = vrfOf(r.tools);
     applyState(r.state, r.gameRunning);
     renderRail(); renderContent();
-    S.eq = null; S.spells = null; S.spellHero = null;
+    S.eq = null; S.spells = null;
     if (S.connected) await loadSlots();
     if (S.connected && !r.toolsPromptSeen && !S.promptShown) { S.promptShown = true; await offerTool(r.tools); }
   }
@@ -959,7 +950,7 @@
 
   // ---------- «Инвентарь»: everything worn now, in one window ----------
   // The tab sits before «Настройки». It is built here (index.html has no markup for it).
-  const wornCount = () => Object.keys(S.picks).length + Object.keys(S.items).length + Object.keys(S.icons).length;
+  const wornCount = () => Object.keys(S.picks).length + Object.keys(S.items).length;
   function ensureEqTab() {
     if ($('tabEq')) return;
     const set = $('tabSet');
@@ -986,7 +977,7 @@
     if (picking) return;
     picking = true;
     try {
-      const r = kind === 'free' ? await call(api.pick, slot, null) : kind === 'icon' ? await call(api.spellPick, slot, null) : await call(api.heroPick, slot, null, []);
+      const r = kind === 'free' ? await call(api.pick, slot, null) : await call(api.heroPick, slot, null, []);
       if (!r) return;
       applyState(r.state);
       S.heroes = null; S.hero = null; S.heroData = null; // the hero grid is read again when it is opened
@@ -1072,54 +1063,46 @@
     } finally { picking = false; }
   }
 
-  function presetsBlock(total) {
+  /* The presets, in one strip above the worn things: a chip for each, and the name to keep what is worn now under.
+   * The strip folds to the names alone. */
+  S.presetsOpen = true;
+  function presetsBar(anything) {
     const list = S.presets || [];
-    const input = h('input', { class: 'sinput', type: 'text', maxlength: '40', placeholder: 'Название пресета', spellcheck: 'false' });
+    const toggle = h('button', { class: 'presettoggle' + (S.presetsOpen ? '' : ' shut'), type: 'button', 'aria-expanded': S.presetsOpen ? 'true' : 'false',
+      'aria-label': S.presetsOpen ? 'Свернуть пресеты' : 'Развернуть пресеты', onclick: () => { S.presetsOpen = !S.presetsOpen; renderContent(); } },
+      icon('expand_more'), 'Пресеты', h('span', { text: list.length ? String(list.length) : '' }));
+    if (!S.presetsOpen) return h('div', { class: 'presetbar' }, toggle, h('span', { class: 'presetnames', text: list.map((p) => p.name).join(' · ') }));
+    const input = h('input', { class: 'sinput', type: 'text', maxlength: '40', placeholder: 'Название пресета', 'aria-label': 'Название пресета', spellcheck: 'false' });
     const doSave = () => savePreset(input.value);
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); });
-    const saveBtn = h('button', { class: 'btn primary sm', type: 'button', onclick: doSave }, icon('bookmark_add'), 'Сохранить надетое');
-    saveBtn.disabled = !total;
-    if (!total) saveBtn.title = 'Сейчас ничего не надето';
-    const rows = list.map((p) => h('div', { class: 'preset' + (p.auto ? ' auto' : '') },
-      icon(p.auto ? 'history' : 'bookmark'),
-      h('div', { class: 'pinfo' },
-        h('div', { class: 'pname', text: p.name }),
-        h('div', { class: 'psub', text: [presetSummary(p.counts), presetWhen(p.saved)].filter(Boolean).join(' · ') })),
-      h('button', { class: 'btn sm', type: 'button', onclick: () => loadPreset(p.id) }, icon('checkroom'), 'Надеть'),
-      h('button', { class: 'btn sm icononly', type: 'button', title: 'Удалить', onclick: (e) => deletePreset(e.currentTarget, p.id) }, icon('delete'))));
-    return h('div', { class: 'presets' },
-      h('div', { class: 'eqgroup' }, h('h2', { text: 'Пресеты' }), h('span', { class: 'count', text: list.length ? String(list.length) : '' }), h('div', { class: 'line' })),
-      h('div', { class: 'presetnew' }, input, saveBtn),
-      rows.length ? h('div', { class: 'presetlist' }, rows)
-        : h('p', { class: 'psub', text: 'Сохрани надетое под именем: потом его можно вернуть одним нажатием, даже после «Снять все».' }));
+    const saveBtn = h('button', { class: 'btn primary', type: 'button', onclick: doSave }, 'Сохранить надетое');
+    saveBtn.disabled = !anything;
+    if (!anything) saveBtn.title = 'Сейчас ничего не надето';
+    const chips = list.map((p) => {
+      const c = p.counts || {};
+      return h('div', { class: 'presetchip' + (p.auto ? ' auto' : ''), title: [presetSummary(c), presetWhen(p.saved)].filter(Boolean).join(' · ') },
+        h('b', { text: p.name }), h('span', { text: String((c.free || 0) + (c.items || 0) + (c.icons || 0)) }),
+        h('button', { class: 'btn xs', type: 'button', onclick: () => loadPreset(p.id) }, 'Надеть'),
+        h('button', { class: 'del', type: 'button', 'aria-label': 'Удалить пресет', title: 'Удалить', onclick: (e) => deletePreset(e.currentTarget, p.id) }, icon('close')));
+    });
+    return h('div', { class: 'presetbar' }, toggle,
+      h('div', { class: 'presetchips' }, chips.length ? chips
+        : h('span', { class: 'presetnames', text: 'Сохрани надетое под именем: потом его можно вернуть одним нажатием, даже после «Снять все».' })),
+      input, saveBtn);
   }
 
-  function iconTile(o) {
-    const card = h('div', { class: 'card worn spell' },
-      pic('spell', o.icon),
-      h('span', { class: 'slotchip' }, icon('stars'), 'Иконка'),
-      h('span', { class: 'badge' }, icon('check_circle'), 'Надето'),
-      h('div', { class: 'name', text: o.name }),
-      h('div', { class: 'sub', text: o.label || o.ability }),
-      h('button', { class: 'btn sm unequip', type: 'button', onclick: () => unequip('icon', o.ability) }, icon('close'), 'Снять'));
-    card.style.setProperty('--tint', tint(o.ability));
-    return card;
+  /** One worn thing: its slot (with the effects and the gem on it), its name, and the cross that takes it off. */
+  function wornItem(kind, o, label) {
+    return h('div', { class: 'itm', title: o.name || '' },
+      h('div', { class: 'thumb lg' }, icon(label.icon), pic('item', o.itemId)),
+      h('div', { class: 'rowtext' },
+        h('div', { class: 'rowlabel' }, h('span', { text: label.text }),
+          kind === 'hero' ? fxTags({ effects: o.effects || '' }, S.eq.effects, o.styled ? { styles: [0, 1] } : null) : null,
+          o.gem ? h('span', { class: 'gemline', title: 'Цвет гема' }, h('i', { class: 'gemdot', style: `background:${toHex(o.gem)}` }), toHex(o.gem).toUpperCase()) : null),
+        h('div', { class: 'itmname', text: o.name || `Предмет ${o.itemId}` })),
+      h('button', { class: 'del', type: 'button', 'aria-label': 'Снять', title: 'Снять', onclick: () => unequip(kind, o.slot) }, icon('close')));
   }
 
-  function wornTile(kind, o, subtitle, label) {
-    const tags = kind === 'hero' ? fxTags({ effects: o.effects }, S.eq.effects, o.styled ? { styles: [0, 1] } : null) : null;
-    const card = h('div', { class: 'card worn' },
-      pic('item', o.itemId),
-      h('span', { class: 'slotchip' }, icon(label.icon), label.text),
-      h('span', { class: 'badge' }, icon('check_circle'), 'Надето'),
-      tags,
-      o.gem ? h('div', { class: 'gemline' }, h('i', { class: 'gemdot', style: `background:${toHex(o.gem)}` }), `Гем ${toHex(o.gem)}`) : null,
-      h('div', { class: 'name', text: o.name || `Предмет ${o.itemId}` }),
-      h('div', { class: 'sub', text: subtitle }),
-      h('button', { class: 'btn sm unequip', type: 'button', onclick: () => unequip(kind === 'hero' ? 'hero' : 'free', o.slot) }, icon('close'), 'Снять'));
-    card.style.setProperty('--tint', tint((o.name || o.itemId) + label.text));
-    return card;
-  }
   function renderEquipped(c) {
     c.scrollTop = 0;
     if (!S.connected) {
@@ -1134,37 +1117,40 @@
       return;
     }
     const { free, heroItems, abilityPicks } = S.eq;
-    const total = free.length + heroItems.length + abilityPicks.length;
-    const kids = [h('div', { class: 'head' }, h('h1', { text: 'Инвентарь' }), h('span', { class: 'count', text: total ? plural(total, 'предмет', 'предмета', 'предметов') : '' }), h('div', { class: 'line' }),
-      total ? h('button', { class: 'btn', type: 'button', onclick: (e) => clearAll(e.currentTarget) }, icon('layers_clear'), h('span', { text: 'Снять все' })) : null)];
-    kids.push(presetsBlock(total));
-    if (!total) {
+    // The ability icons are not listed here: they are on each hero's own screen. They still count as worn for
+    // «Снять все» and for a preset.
+    const total = free.length + heroItems.length;
+    const anything = total + abilityPicks.length;
+    const kids = [h('div', { class: 'head' }, h('h1', { text: 'Инвентарь' }), h('span', { class: 'count', text: total ? plural(total, 'предмет', 'предмета', 'предметов') : '' }), h('div', { class: 'grow' }),
+      anything ? h('button', { class: 'btn ghost', type: 'button', onclick: (e) => clearAll(e.currentTarget) }, h('span', { text: 'Снять все' })) : null)];
+    kids.push(presetsBar(anything));
+    if (!anything) {
       kids.push(h('div', { class: 'empty' }, icon('checkroom'), h('h2', { text: 'Пока ничего не надето' }),
         h('p', { text: 'Выбери предмет в разделе «Косметика» или у героя: он появится здесь, и его можно будет снять одной кнопкой.' }),
         h('button', { class: 'btn primary', type: 'button', onclick: () => setTab('cos'), text: 'К косметике' })));
       c.replaceChildren(...kids);
       return;
     }
+    const section = (avatar, title, sub, open, items) => h('div', { class: 'invrow' },
+      h('div', { class: 'invhead' }, avatar, h('div', {},
+        h('div', { class: 'invtitle', text: title }), h('div', { class: 'invsub', text: sub }),
+        open ? h('button', { class: 'invlink', type: 'button', onclick: open }, 'Открыть героя →') : null)),
+      h('div', { class: 'invgrid' }, items));
     if (free.length) {
-      kids.push(h('div', { class: 'eqgroup' }, h('h2', { text: 'Косметика' }), h('span', { class: 'count', text: String(free.length) })));
-      kids.push(h('div', { class: 'grid slots' }, free.map((o) => {
-        const m = meta(o.slot);
-        return wornTile('free', o, 'Косметика', { icon: m.icon, text: m.label });
-      })));
+      kids.push(section(h('div', { class: 'avatar', text: '✦' }), 'Косметика', plural(free.length, 'предмет', 'предмета', 'предметов'), null,
+        free.map((o) => { const m = meta(o.slot); return wornItem('free', o, { icon: m.icon, text: m.label }); })));
     }
     const byHero = new Map();
     for (const o of heroItems) { if (!byHero.has(o.hero)) byHero.set(o.hero, []); byHero.get(o.hero).push(o); }
     for (const [hero, list] of byHero) {
       const name = list[0].heroName;
-      const open = () => { S.view = 'heroes'; setTab('cos'); openHero(hero, name); };
-      kids.push(h('div', { class: 'eqgroup' }, h('h2', { text: name }), h('span', { class: 'count', text: String(list.length) }), h('div', { class: 'line' }),
-        h('button', { class: 'btn sm', type: 'button', onclick: open }, icon('open_in_new'), 'Открыть героя')));
-      kids.push(h('div', { class: 'grid slots' }, list.map((o) => wornTile('hero', o, name, { icon: o.icon, text: o.slotLabel }))));
+      const withFx = list.filter((o) => parsePick({ effects: o.effects || '' }).fx.length).length;
+      kids.push(section(h('div', { class: 'avatar' }, String(name || hero).slice(0, 1).toUpperCase(), pic('hero', hero)), name,
+        plural(list.length, 'предмет', 'предмета', 'предметов') + (withFx ? `, ${withFx} с эффектом` : ''),
+        () => { S.view = 'heroes'; setTab('cos'); openHero(hero, name); },
+        list.map((o) => wornItem('hero', o, { icon: o.icon, text: o.slotLabel }))));
     }
-    if (abilityPicks.length) {
-      kids.push(h('div', { class: 'eqgroup' }, h('h2', { text: 'Иконки способностей' }), h('span', { class: 'count', text: String(abilityPicks.length) }), h('div', { class: 'line' })));
-      kids.push(h('div', { class: 'grid slots' }, abilityPicks.map((o) => iconTile({ ...o, name: o.heroName ? `${o.heroName}: ${o.name}` : o.name }))));
-    }
+    if (!total) kids.push(h('p', { class: 'invnote', text: `Из надетого сейчас только иконки способностей (${abilityPicks.length}). Они меняются на экране героя, во вкладке «Иконки способностей».` }));
     c.replaceChildren(...kids);
     fillPics([c]);
   }
@@ -1236,6 +1222,7 @@
   function updateBlock(version) {
     const u = S.update || {};
     const busy = u.phase === 'checking' || u.phase === 'downloading';
+    const newer = u.phase === 'available' || u.phase === 'ready';
     const text = {
       checking: 'Проверяю…',
       downloading: `Скачиваю версию ${u.latest}: ${u.percent || 0}%`,
@@ -1244,115 +1231,120 @@
       none: u.latest ? 'У тебя последняя версия' : 'Релизов пока нет',
       error: 'Не удалось проверить обновления',
     }[u.phase] || 'Ещё не проверял';
-    const kids = [
-      row(h('span', { class: 'label', text: 'Версия' }), h('span', { class: 'mono', text: version || '—' }),
-        h('span', { class: 'label grow', text, style: u.phase === 'error' ? 'color: var(--bad)' : '' }),
-        h('button', { class: 'btn sm', type: 'button', disabled: busy || u.phase === 'ready', onclick: () => checkUpdate(false) }, icon('refresh'), 'Проверить'),
-        u.phase === 'ready' ? h('button', { class: 'btn sm primary', type: 'button', onclick: installUpdate }, icon('restart_alt'), 'Перезапустить и обновить') : null,
-        u.phase === 'available' && u.mode === 'manual' ? h('button', { class: 'btn sm primary', type: 'button', onclick: () => call(api.openExternal, u.url) }, icon('open_in_new'), 'Скачать') : null),
+    const tone = u.phase === 'error' ? ' bad' : newer ? ' new' : u.phase === 'none' && u.latest ? ' ok' : '';
+    const act = u.phase === 'ready' ? h('button', { class: 'btn primary', type: 'button', onclick: installUpdate }, icon('restart_alt'), 'Перезапустить и обновить')
+      : u.phase === 'available' && u.mode === 'manual' ? h('button', { class: 'btn primary', type: 'button', onclick: () => call(api.openExternal, u.url) }, icon('open_in_new'), 'Скачать') : null;
+    const check = h('button', { class: 'btn' + (act ? '' : ' primary'), type: 'button', disabled: busy || u.phase === 'ready', onclick: () => checkUpdate(false) }, icon('refresh'), 'Проверить');
+    const el = h('div', { class: 'sblock', id: 'updBlock' },
+      h('i', { class: 'updglow' }),
+      h('h3', { text: 'Обновления' }),
+      h('div', { class: 'upd' },
+        h('div', { class: 'updring' + (busy ? ' busy' : '') }, icon(busy ? 'progress_activity' : u.phase === 'error' ? 'priority_high' : newer ? 'arrow_downward' : 'check')),
+        h('div', { class: 'grow' },
+          h('div', { class: 'updk', text: 'ВЕРСИЯ' }), h('div', { class: 'updver', text: version || '—' }), h('div', { class: 'updstate' + tone, text })),
+        check, act),
       u.phase === 'downloading' ? h('div', { class: 'bar' }, h('i', { style: `width: ${u.percent || 0}%` })) : null,
       u.phase === 'error' && u.error ? h('p', { class: 'shint', text: u.error }) : null,
       u.available && u.notes ? h('div', { class: 'upd-notes', text: u.notes }) : null,
-      u.mode === 'manual' ? h('p', { class: 'shint', text: 'Эта копия сама не обновляется: автообновление работает у версии, установленной установщиком (Setup). Здесь приложение только сообщит о новой версии со ссылкой на загрузку.' })
-        : u.mode === 'auto' ? h('p', { class: 'shint', text: 'Новая версия скачивается сама. Если не нажимать «Перезапустить и обновить», она поставится, когда ты закроешь приложение.' }) : null,
-    ];
-    const el = block('Обновления', ...kids);
-    el.id = 'updBlock';
+      u.mode === 'manual' ? h('div', { class: 'infobox' }, icon('info'), h('span', { text: 'Эта копия сама не обновляется: автообновление работает у версии, установленной установщиком (Setup). Здесь приложение только сообщит о новой версии со ссылкой на загрузку.' }))
+        : u.mode === 'auto' ? h('div', { class: 'infobox' }, icon('info'), h('span', { text: 'Новая версия скачивается сама. Если не нажимать «Перезапустить и обновить», она поставится, когда ты закроешь приложение.' })) : null);
     return el;
   }
 
-  /* Colours of the interface: ready palettes plus three sliders. Dragging a slider repaints the app live and
-   * must not redraw this block (that would drop the slider), so the sliders and swatches are updated by hand. */
+  /* Colours of the interface: three sliders (the ready palettes are on the logo). Dragging a slider repaints the app
+   * live and must not redraw this block (that would drop the slider), so the sliders are updated by hand. The two
+   * squares in the heading are the colours now: they are drawn from the theme's own variables. */
   function themeBlock() {
     const T = window.Theme;
-    const swatches = [], sliders = {};
-    const markActive = () => { const p = T.preset(T.get()); swatches.forEach(([el, id]) => el.classList.toggle('active', !!p && p.id === id)); };
+    const sliders = {};
     const track = () => {
       const t = T.get();
-      const g = (a, b, c) => `linear-gradient(90deg, ${[a, b, c].join(',')})`;
-      const hues = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 70% 55%)`);
-      sliders.hue.style.setProperty('--track', g(...hues));
-      sliders.accent.style.setProperty('--track', g(...hues));
-      sliders.sat.style.setProperty('--track', g(`hsl(${t.hue} 4% 20%)`, `hsl(${t.hue} 60% 28%)`, `hsl(${t.hue} 90% 36%)`));
+      const hues = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 70% 55%)`).join(',');
+      sliders.hue.style.setProperty('--track', `linear-gradient(90deg, ${hues})`);
+      sliders.accent.style.setProperty('--track', `linear-gradient(90deg, ${hues})`);
+      sliders.sat.style.setProperty('--track', `linear-gradient(90deg, hsl(${t.hue} 6% 20%), hsl(${t.hue} 80% 50%))`);
     };
     const slide = (key, label, min, max, fmt) => {
       const num = h('span', { class: 'num' });
       const input = h('input', { type: 'range', min, max, step: 1, value: T.get()[key], 'aria-label': label });
       sliders[key] = input;
       const sync = () => { num.textContent = fmt(+input.value); };
-      input.addEventListener('input', () => { T.set({ [key]: +input.value }); sync(); markActive(); track(); });
+      input.addEventListener('input', () => { T.set({ [key]: +input.value }); sync(); track(); });
       sync();
       return h('div', { class: 'slide' }, h('span', { class: 'label', text: label }), input, num);
     };
-    const box = block('Оформление',
-      h('p', { class: 'shint', text: 'Готовые цвета меняются по клику на логотип слева вверху. Ползунки ниже настраивают любой свой.' }),
-      slide('hue', 'Цвет фона', 0, 360, (v) => v + '°'),
-      slide('sat', 'Насыщенность фона', 0, 90, (v) => v + '%'),
-      slide('accent', 'Цвет акцента', 0, 360, (v) => v + '°'),
-      row(h('button', { class: 'btn sm', type: 'button', onclick: () => {
-        T.reset(); const d = T.get();
-        for (const k of ['hue', 'sat', 'accent']) sliders[k].value = d[k];
-        for (const k of ['hue', 'sat', 'accent']) sliders[k].dispatchEvent(new Event('input'));
-        T.reset(); markActive();
-      } }, icon('restart_alt'), 'Сбросить цвета')));
-    markActive(); track();
-    // the logo changes the colours too: when this block is on screen, the sliders follow
-    S.themeSync = () => {
-      if (!sliders.hue.isConnected) return;
+    const follow = () => {
       const t = T.get();
       for (const k of ['hue', 'sat', 'accent']) { sliders[k].value = t[k]; sliders[k].dispatchEvent(new Event('input')); }
     };
+    const box = h('div', { class: 'sblock' },
+      h('h3', {}, 'Оформление', h('span', { class: 'swatches' }, h('i'), h('i'))),
+      h('p', { class: 'shint', text: 'Готовые цвета меняются по клику на логотип слева вверху. Ползунки настраивают любой свой.' }),
+      h('div', {},
+        slide('hue', 'Цвет фона', 0, 360, (v) => v + '°'),
+        slide('sat', 'Насыщенность фона', 0, 90, (v) => v + '%'),
+        slide('accent', 'Цвет акцента', 0, 360, (v) => v + '°')),
+      row(h('button', { class: 'btn sm', type: 'button', onclick: () => {
+        T.reset(); follow();
+        T.reset(); // the sliders, following, saved the default as a choice: it is no choice
+      } }, 'Сбросить цвета')));
+    track();
+    // the logo changes the colours too: when this block is on screen, the sliders follow
+    S.themeSync = () => { if (sliders.hue.isConnected) follow(); };
     return box;
   }
 
   async function renderSettings(c) {
     if (!S.set) { c.replaceChildren(h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Загружаю настройки…' }))); await reloadSettings(); return; }
     const m = S.set, vrf = S.tool;
-    const kids = [h('div', { class: 'head' }, h('h1', { text: 'Настройки' }), h('div', { class: 'line' }))];
-
-    kids.push(themeBlock());
     S.appVersion = m.version;
-    kids.push(updateBlock(m.version));
+    const field = (label, ...kids) => h('div', { class: 'field' }, h('span', { text: label }), kids);
+    const titled = (title, sub, ...kids) => row(h('div', { class: 'grow' }, h('div', { class: 'strong', text: title }), sub ? h('div', { class: 'label', text: sub }) : null), ...kids);
 
-    kids.push(block('Путь к Dota 2',
-      row(h('span', { class: 'mono grow', text: m.gamePath || 'не найден' }), h('i', { class: 'dot ' + (m.gameValid ? 'ok' : 'bad') })),
-      row(h('span', { class: 'label', text: 'Папка модов' }), h('span', { class: 'mono grow', text: m.modFolder ? m.gamePath.replace(/[\\/]+$/, '') + '\\' + m.modFolder : '—' })),
-      row(h('span', { class: 'label grow', text: 'Все файлы, которые менеджер положил в игру (pak99_dir.vpk, патч gameinfo), будут удалены. Чужие файлы не трогаются, надетое сохранится в «Автосохранение».' }),
-        h('button', { class: 'btn sm', type: 'button', disabled: !m.gameValid, onclick: (e) => removeMods(e.currentTarget) }, icon('delete_forever'), h('span', { text: 'Удалить модификации' }))),
+    const pathBlock = block('Путь к Dota 2',
+      field('Папка игры', h('div', { class: 'pathbox' }, h('span', { text: m.gamePath || 'не найден' }), h('i', { class: 'dot ' + (m.gameValid ? 'ok' : 'bad') }))),
+      field('Папка модов', h('div', { class: 'pathbox' }, h('span', { text: m.modFolder ? m.gamePath.replace(/[\\/]+$/, '') + '\\' + m.modFolder : '—' }))),
       row(h('button', { class: 'btn sm', type: 'button', text: 'Найти автоматически', onclick: async () => {
         const r = await call(api.detectGame);
         if (r) { if (r.found) { toast('Dota 2 найдена'); await start(); } else toast('Не нашёл автоматически: укажи вручную', true); }
         await reloadSettings();
-      } }), h('button', { class: 'btn sm', type: 'button', text: 'Указать вручную', onclick: async () => { await chooseGame(); await reloadSettings(); } }))));
+      } }), h('button', { class: 'btn sm', type: 'button', text: 'Указать вручную', onclick: async () => { await chooseGame(); await reloadSettings(); } })));
 
+    const extra = [];
     if (vrf && vrf.available) {
       const ready = vrf.ready;
-      const prog = h('div', { class: 'bar', id: 'toolBar', hidden: !S.toolBusy }, h('i'));
-      kids.push(block('Дополнительный контент: картинки предметов',
-        row(h('span', { class: 'label grow', text: ready ? 'Установлен' : 'Не скачан' }),
-          h('span', { class: 'num', text: mb(ready ? vrf.installedBytes : vrf.downloadBytes) }),
+      extra.push(
+        titled('Картинки предметов', `${ready ? 'Установлен' : 'Не скачан'} · ${mb(ready ? vrf.installedBytes : vrf.downloadBytes)}`,
           ready ? h('button', { class: 'btn sm', type: 'button', text: 'Удалить', onclick: removeTool })
             : h('button', { class: 'btn sm primary', type: 'button', disabled: S.toolBusy, onclick: installTool }, icon('download'), 'Скачать')),
-        prog,
-        h('p', { class: 'shint', text: 'Большинство иконок предметов приложение читает из самой игры без скачивания. Эта программа (Source 2 Viewer, MIT) нужна для тех, что Valve хранит сжатыми, и для портретов героев. Удалить можно в любой момент.' })));
+        h('div', { class: 'bar', id: 'toolBar', hidden: !S.toolBusy }, h('i')),
+        h('p', { class: 'shint', text: 'Большинство иконок предметов приложение читает из самой игры без скачивания. Эта программа (Source 2 Viewer, MIT) нужна для тех, что Valve хранит сжатыми, и для портретов героев. Удалить можно в любой момент.' }),
+        h('div', { class: 'sdiv' }));
     }
-
-    kids.push(block('Кэш',
-      row(h('span', { class: 'label grow', text: 'Картинки из игры' }), h('span', { class: 'num', text: mb(m.iconCacheBytes) }),
+    const extraBlock = block('Дополнительный контент', ...extra,
+      titled('Кэш', `Картинки из игры · ${mb(m.iconCacheBytes)}`,
         h('button', { class: 'btn sm', type: 'button', text: 'Очистить', onclick: async () => {
           const r = await call(api.clearCache); if (!r) return;
           S.pics.clear(); S.why.clear(); toast('Кэш очищен'); await reloadSettings();
         } })),
-      row(h('span', { class: 'label', text: 'Прокси для загрузки' }),
+      h('div', { class: 'sdiv' }),
+      field('Прокси для загрузки', row(
         h('input', { class: 'sinput', id: 'proxyIn', placeholder: 'http://127.0.0.1:8080 (пусто = напрямую)', value: m.proxy, spellcheck: 'false' }),
         h('button', { class: 'btn sm', type: 'button', text: 'Сохранить', onclick: async () => {
           const r = await call(api.setSetting, 'downloadProxy', $('proxyIn').value);
           if (r) { toast($('proxyIn').value.trim() ? 'Прокси сохранён' : 'Прокси отключён'); await reloadSettings(); }
-        } })),
-      row(h('button', { class: 'btn sm', type: 'button', onclick: () => call(api.openDataFolder) }, icon('folder_open'), 'Папка данных приложения'))));
+        } }))),
+      row(h('button', { class: 'btn sm', type: 'button', onclick: () => call(api.openDataFolder) }, icon('folder_open'), 'Папка данных приложения')));
+
+    const removeBlock = h('div', { class: 'sblock danger' }, h('h3', { text: 'Удаление модов' }),
+      row(h('span', { class: 'label grow', text: 'Все файлы, которые менеджер положил в игру (pak99_dir.vpk, патч gameinfo), будут удалены. Чужие файлы не трогаются, надетое сохранится в «Автосохранении».' }),
+        h('button', { class: 'btn sm redline', type: 'button', disabled: !m.gameValid, onclick: (e) => removeMods(e.currentTarget) }, h('span', { text: 'Удалить модификации' }))));
 
     const top = c.scrollTop;
-    c.replaceChildren(h('div', { class: 'settings' }, kids));
+    c.replaceChildren(h('div', { class: 'head' }, h('h1', { text: 'Настройки' })),
+      h('div', { class: 'setgrid' },
+        h('div', { class: 'setcol' }, themeBlock(), updateBlock(m.version)),
+        h('div', { class: 'setcol' }, pathBlock, extraBlock, removeBlock)));
     c.scrollTop = top;
   }
 
@@ -1487,7 +1479,6 @@
   }
 
   ensureEqTab();
-  for (const id of ['safeBtn', 'confirmDlg', 'aboutBtn', 'about']) { const el = $(id); if (el) el.remove(); } // old markup, if index.html still has it
   $('tabCos').addEventListener('click', () => setTab('cos'));
   $('tabEq').addEventListener('click', () => setTab('eq'));
   $('tabSet').addEventListener('click', () => setTab('set'));
