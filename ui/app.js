@@ -110,9 +110,8 @@
     $('folderBtn').disabled = !S.connected;
   }
 
-  // The left list, as the design has it: «Герой», «Эмблемы», then a line for each group of the free cosmetics (the
-  // slots read from the game). A group's slots are the tabs at the top of its screen. A slot that is in no group
-  // (one Valve adds later) goes to «Прочее».
+  // The left list: «Герой», «Эмблемы», then the free cosmetics (the slots read from the game), a line for each
+  // slot under the name of its group. A slot that is in no group (one Valve adds later) goes to «Прочее».
   const RAIL_GROUPS = [
     { id: 'units', label: 'Спутники', icon: 'pets', slots: ['courier', 'ward', 'radiantcreeps', 'direcreeps', 'radiantsiegecreeps', 'diresiegecreeps', 'radianttowers', 'diretowers'] },
     { id: 'world', label: 'Игровой мир', icon: 'landscape', slots: ['terrain', 'weather'] },
@@ -136,11 +135,7 @@
     if (rest.length) out.push({ id: 'misc', label: 'Прочее', icon: 'category', list: rest });
     return out;
   }
-  const groupOf = (slot) => railGroups().find((g) => g.list.some((s) => s.slot === slot)) || null;
-  S.groupSlot = {}; // the slot last opened in each group: the group opens on it again
   function openSlot(slot) {
-    const g = groupOf(slot);
-    if (g) S.groupSlot[g.id] = slot;
     S.view = 'slot'; S.current = slot; S.query = ''; $('search').value = '';
     renderRail(); renderContent();
   }
@@ -156,10 +151,10 @@
     const hasEmblems = (S.emblems || []).some((g) => S.picks[g.slot]);
     rail.append(item(S.view === 'heroes', 'person', 'Герой', hasHero, openHeroes), item(S.view === 'emblems', 'star', 'Эмблемы', hasEmblems, openEmblems));
     if (S.loading) { rail.append(h('div', { class: 'rail-hint', text: 'Читаю таблицу предметов игры…' })); return; }
-    const cur = S.view === 'slot' ? groupOf(S.current) : null;
+    // every slot is a line of its own, under the name of its group
     for (const g of railGroups()) {
-      rail.append(item(!!cur && cur.id === g.id, g.icon, g.label, g.list.some((s) => S.picks[s.slot]),
-        () => openSlot((g.list.find((s) => s.slot === S.groupSlot[g.id]) || g.list[0]).slot)));
+      rail.append(h('div', { class: 'rail-label', text: g.label }));
+      for (const sl of g.list) { const m = meta(sl.slot); rail.append(item(S.view === 'slot' && S.current === sl.slot, m.icon, m.label, !!S.picks[sl.slot], () => openSlot(sl.slot))); }
     }
   }
 
@@ -369,15 +364,10 @@
       }
       return [...lead, ...def, ...rest];
     };
-    // the slots of the group this one is in: tabs under the heading
-    const g = groupOf(slot.slot);
-    const many = !!g && g.list.length > 1;
     c.replaceChildren(
       h('div', { class: 'head' },
-        h('h1', { text: many ? g.label : m.label }), h('span', { class: 'count', text: `${opts.length} из ${slot.options.length}` }), h('div', { class: 'grow' }),
+        h('h1', { text: m.label }), h('span', { class: 'count', text: `${opts.length} из ${slot.options.length}` }), h('div', { class: 'grow' }),
         picked ? h('button', { class: 'btn ghost', type: 'button', onclick: () => pick(slot.slot, null), text: 'Сбросить на стандартный' }) : null),
-      many ? h('div', { class: 'seg' }, g.list.map((x) => h('button', { class: x.slot === slot.slot ? 'active' : '', type: 'button', onclick: () => openSlot(x.slot) },
-        meta(x.slot).label, S.picks[x.slot] ? h('i', { class: 'rail-dot', title: 'Выбрано' }) : null))) : null,
       opts.length || (fxSlot && !q) ? h('div', { class: 'grid' }, courierCards()) : h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' })));
   }
 
