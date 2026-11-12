@@ -132,7 +132,15 @@ const wearsGem = (slotId: string, rec: HeroPick) => gemSetOf(slotId, rec) !== nu
 /** What a build is made from: the picks of every kind. The pak in the game always matches one of these (`applied`). */
 interface Snap { picks: Record<string, string>; items: Record<string, HeroPick>; icons: Record<string, string>; fx: Record<string, string>; gem: Gems | null }
 
+/**
+ * The builder's revision: raised whenever the same picks would now build a different pak. A pak
+ * built by an older one is pending again, so «Применить косметику» is there to press after an
+ * update of the app; without it the button stayed off and the game kept the old build's files.
+ */
+export const BUILD_REV = 2;
+
 interface Saved {
+  /** the BUILD_REV the pak in the game was built by */ rev?: number;
   /** the mod folder the pak was last written into (dota_russian...) */ folder?: string | null;
   picks: Record<string, string>; items: Record<string, HeroPick>; icons?: Record<string, string>; fx?: Record<string, string>; gem?: Gems | null; stamp: string | null;
   /** the picks the pak in the game was last built from; the picks above can be ahead of it until «Применить косметику» */
@@ -176,7 +184,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       const applied: Snap = s.applied && typeof s.applied === 'object'
         ? snap({ picks: s.applied.picks ?? {}, items: s.applied.items ?? {}, icons: s.applied.icons ?? {}, fx: s.applied.fx ?? {}, gem: cleanGems(s.applied.gem) })
         : s.stamp ? snap(cur) : snap({ picks: {}, items: {}, icons: {}, fx: {}, gem: null });
-      return { ...cur, stamp: s.stamp ?? null, folder: s.folder ?? null, applied };
+      return { ...cur, stamp: s.stamp ?? null, folder: s.folder ?? null, applied, ...(typeof s.rev === 'number' ? { rev: s.rev } : {}) };
     } catch { return { picks: {}, items: {}, icons: {}, fx: {}, gem: null, stamp: null, applied: snap({ picks: {}, items: {}, icons: {}, fx: {}, gem: null }) }; }
   }
   function save(s: Saved): void {
@@ -405,6 +413,8 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
           const to = normalizeAssetPath(c.to).toLowerCase();
           return [to.endsWith('_c') ? to : `${to}_c`];
         });
+        // the hero's model that keeps this pick's model loaded shows in the report with the pick's own files
+        for (const r of residents) if (r.patch === heroPatches.length - 1 && !trace.paths.includes(r.heroModel)) trace.paths.push(r.heroModel);
         traces.push(trace);
         for (const copy of pick.assetCopies) {
           if (!('to' in copy)) continue;
@@ -490,7 +500,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     }
     ensurePatch();
     const res = schema.deploy({ gamePath, folder: folder(), patches, base, beneath });
-    save({ ...cur, stamp: base.stamp, folder: folder() , applied: appliedNow });
+    save({ ...cur, stamp: base.stamp, folder: folder() , applied: appliedNow, rev: BUILD_REV });
     const report = buildApplyReport(traces, res, sourceLabel, base.stamp);
     if (traces.length) {
       try { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(path.join(dataDir, 'apply-report.txt'), report.text); } catch { /* only a help */ }
@@ -1024,7 +1034,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     const st = patcher.state(gamePath, folder());
     return {
       patched: st.patched, signed: st.signed, signable: st.signable,
-      outdated: st.outdated, foreign: st.foreign, deployed: schema.isDeployed(gamePath, folder()), pending: !sameSnap(snap(s), s.applied!), picks: s.picks, items: s.items, icons: s.icons ?? {}, fx: s.fx ?? {}, gem: s.gem ?? null,
+      outdated: st.outdated, foreign: st.foreign, deployed: schema.isDeployed(gamePath, folder()), pending: !sameSnap(snap(s), s.applied!) || (!!s.stamp && s.rev !== BUILD_REV), picks: s.picks, items: s.items, icons: s.icons ?? {}, fx: s.fx ?? {}, gem: s.gem ?? null,
     };
   }
 

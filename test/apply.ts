@@ -78,4 +78,12 @@ const old = JSON.parse(fs.readFileSync(file, 'utf8')); delete old.applied;
 fs.writeFileSync(file, JSON.stringify(old));
 assert.equal(createCosmetics({ gamePath: game, dataDir: path.join(root, 'data') }).state().pending, false);
 
+// a pak built by an older builder is pending again: the same picks now build other files
+const stale = JSON.parse(fs.readFileSync(file, 'utf8')); delete stale.rev;
+fs.writeFileSync(file, JSON.stringify(stale));
+const again = createCosmetics({ gamePath: game, dataDir: path.join(root, 'data') });
+assert.equal(again.state().pending, true, 'built before this revision');
+again.apply();
+assert.equal(again.state().pending, false, 'and built again');
+
 console.log('APPLY OK');
