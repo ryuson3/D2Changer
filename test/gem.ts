@@ -130,4 +130,24 @@ assert.equal(c.state().patched, true, 'still in until apply');
 c.apply();
 assert.equal(c.state().patched, false);
 assert.equal(c.equipped().heroItems.length, 0);
+
+// the gem picture comes out of the game's socket textures: the shared one with its mask, a gem's own when it is there
+{
+  const { prismaticGemArt, withGemPictures } = await import('../src/gems.ts');
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8), Buffer.from('IEND'), Buffer.alloc(4)]);
+  const head = Buffer.alloc(16); head.writeUInt32LE(16, 0);
+  const vtex = Buffer.concat([head, png]);
+  const files = new Map([
+    ['panorama/images/econ/sockets/gem_color_png.vtex_c', vtex],
+    ['panorama/images/econ/sockets/gem_color_mask_png.vtex_c', vtex],
+    ['panorama/images/econ/sockets/gem_color_red_png.vtex_c', vtex],
+  ]);
+  const ix = { has: (p: string) => files.has(p), read: (p: string) => files.get(p) ?? null };
+  const art = prismaticGemArt(ix);
+  assert.ok(art && art.image.startsWith('data:image/png;base64,') && art.mask, 'the shared gem picture and its mask');
+  assert.equal(prismaticGemArt({ has: () => false, read: () => null }), null, 'no picture in the game: no art');
+  const pics = withGemPictures([{ key: 'unusual_red', name: 'Red', rgb: [255, 0, 0] }, { key: 'unusual_blue', name: 'Blue', rgb: [0, 0, 255] }], ix);
+  assert.ok(pics[0].picture, 'a gem with its own picture carries it');
+  assert.equal(pics[1].picture, undefined, 'the rest use the shared one');
+}
 console.log('GEM OK');

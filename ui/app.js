@@ -238,47 +238,46 @@
       }, fxThumb(e.id, !!e.kinetic), h('span', { class: 'fxname', text: e.name }), on ? h('span', { class: 'fxcheck' }, icon('check_circle')) : null);
     };
     /* One window for the effects, another for the Kinetic Gems of this hero (never on the courier).
-     * The game's unusual effects (Ethereal Flame, Sunfire...) come after the builder's own, in a section with a search: there are many. */
+     * The builder's own effects come first, then the game's unusual ones (Ethereal Flame, Sunfire...), all in one grid;
+     * the search in the head narrows it, there are a few dozen. */
     const kineticIds = new Set(S.effects.filter((e) => e.kinetic).map((e) => e.id));
-    let q = '';
-    const fxBody = () => {
+    const grid = h('div', { class: 'fxgrid' });
+    const scroll = h('div', { class: 'fxscroll' }, grid);
+    const input = h('input', { type: 'search', placeholder: 'Найти эффект…', autocomplete: 'off' });
+    const searchBox = h('label', { class: 'search' }, icon('search'), input);
+    const fill = () => {
       const shown = S.effects.filter((e) => e.id && !(courier && e.heroOnly) && (!e.hero || (!courier && (S.hero === e.hero || (e.heroes || []).includes(S.hero)))))
         .filter((e) => (kinetic ? !!e.kinetic : !e.kinetic));
-      if (kinetic) return h('div', { class: 'fxscroll' }, h('div', { class: 'fxgrid' }, ...shown.map(tile)));
-      const own = shown.filter((e) => !e.unusual), game = shown.filter((e) => e.unusual);
-      const scroll = h('div', { class: 'fxscroll' }, h('div', { class: 'fxgrid' }, ...fxSorted(own).map(tile)));
-      if (game.length) {
-        const list = h('div', { class: 'fxgrid compact' });
-        const fill = () => {
-          const want = q.trim().toLowerCase();
-          const hits = game.filter((e) => !want || e.name.toLowerCase().includes(want));
-          list.replaceChildren(...(hits.length ? hits.map(tile) : [h('div', { class: 'fxempty', text: 'Ничего не найдено' })]));
-        };
-        const input = h('input', { type: 'search', placeholder: 'Найти эффект…', autocomplete: 'off', value: q });
-        input.addEventListener('input', () => { q = input.value; fill(); });
-        scroll.append(h('div', { class: 'fxgamehead' }, h('span', { class: 'fxlabel', text: `Эффекты из игры · ${game.length}` }), h('div', { class: 'grow' }),
-          h('label', { class: 'search' }, icon('search'), input)), list);
-        fill();
-      }
-      return scroll;
+      searchBox.hidden = shown.length < 13;
+      const want = searchBox.hidden ? '' : input.value.trim().toLowerCase();
+      const hits = (kinetic ? shown : fxSorted(shown)).filter((e) => !want || e.name.toLowerCase().includes(want));
+      grid.replaceChildren(...(hits.length ? hits.map(tile) : [h('div', { class: 'fxempty', text: 'Ничего не найдено' })]));
     };
-    const paint = () => { const top = box.querySelector('.fxscroll')?.scrollTop || 0; paintBox(); const sc = box.querySelector('.fxscroll'); if (sc) sc.scrollTop = top; };
-    const paintBox = () => box.replaceChildren(...[
+    input.addEventListener('input', fill);
+    // the head and the grid are made once (the search keeps its text and focus); a pick redraws the tiles and the foot
+    const foot = h('div', { class: 'fxmenu-foot' });
+    box.append(
       h('div', { class: 'fxmenu-head' },
         kinetic ? h('img', { class: 'fxhead-gem', src: 'img/kinetic-gem.jpg', alt: '', draggable: 'false' }) : icon('brush'),
         h('span', { class: 'fxlabel', text: kinetic ? 'Кинетики' : 'Эффекты' }),
         title && title !== 'null' ? h('span', { class: 'fxmenu-title', text: String(title) }) : null,
         h('div', { class: 'grow' }),
+        searchBox,
         h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closeFxMenu }, icon('close'))),
-      fxBody(),
-      h('div', { class: 'fxmenu-foot' },
+      scroll, foot);
+    const paint = () => {
+      const top = scroll.scrollTop;
+      fill();
+      scroll.scrollTop = top;
+      foot.replaceChildren(...[
         cur.some((id) => kineticIds.has(id) === kinetic) ? h('button', { class: 'btn', type: 'button', onclick: async () => {
           const rest = cur.filter((id) => kineticIds.has(id) !== kinetic); // the other window's picks stay
           if (await apply(rest) !== false) { cur = rest; paint(); }
         } }, kinetic ? 'Убрать кинетики' : 'Убрать все эффекты') : null,
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn primary', type: 'button', onclick: closeFxMenu }, 'Готово')),
-    ].filter(Boolean));
+        h('button', { class: 'btn primary', type: 'button', onclick: closeFxMenu }, 'Готово'),
+      ].filter(Boolean));
+    };
     paint();
     menu.addEventListener('mousedown', (e) => { if (e.target === menu) closeFxMenu(); });
     document.body.append(menu);
@@ -644,13 +643,30 @@
         ? [{ rgb: def, name: 'По умолчанию' }, ...game.filter((g) => !same(g.rgb, def))]
         : [def, ...GEM_COLORS.filter((c) => !same(c, def))].map((c) => ({ rgb: c, name: toHex(c).toUpperCase() }));
       const curName = cur ? (colors.find((g) => same(g.rgb, cur)) || {}).name : 'По умолчанию';
+      // a gem as the game draws it: its own socket picture, or the shared gem picture with the colour laid on its mask
+      const art = S.heroData && S.heroData.gemArt;
+      const gemPic = (g) => {
+        if (g.picture) return h('img', { class: 'gemart', src: g.picture, alt: '', draggable: 'false' });
+        if (!art) return null;
+        return h('span', { class: 'gemart', style: `--gem:${toHex(g.rgb)}` },
+          h('img', { src: art.image, alt: '', draggable: 'false' }),
+          art.mask ? h('span', { class: 'gemtint', style: `-webkit-mask-image:url("${art.mask}");mask-image:url("${art.mask}")` }) : null,
+          art.mask ? h('img', { class: 'gemfacets', src: art.mask, alt: '', draggable: 'false' }) : null);
+      };
+      const dot = (g) => {
+        const on = same(cur, g.rgb), pic = game.length ? gemPic(g) : null;
+        if (!pic) return h('button', { class: 'gemdot' + (on ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, 'aria-label': g.name, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) }, on ? icon('check') : null);
+        return h('button', { class: 'gemcard' + (on ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) },
+          pic, h('span', { class: 'gemname', text: g.name }), on ? h('span', { class: 'gemcheck' }, icon('check_circle')) : null);
+      };
+      const withArt = game.length && (art || game.some((g) => g.picture));
       stage = h('div', { class: 'gemstage', style: `--gem:${hex}` }, h('div', { class: 'gembig' }), hexLabel = h('div', { class: 'gemhex', text: (curName && !/^#/.test(curName) ? curName + ' · ' : '') + hex.toUpperCase() }));
       const kids = [
         h('div', { class: 'fxmenu-head' }, icon('diamond'), h('span', { class: 'fxlabel', text: 'Цвет гема' }), h('span', { class: 'fxmenu-title', text: arcana }),
           h('div', { class: 'grow' }), h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closeFxMenu }, icon('close'))),
         stage,
-        h('div', { class: 'gemgrid' + (game.length ? ' named' : '') },
-          ...colors.map((g) => h('button', { class: 'gemdot' + (same(cur, g.rgb) ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, 'aria-label': g.name, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) }, same(cur, g.rgb) ? icon('check') : null)),
+        h('div', { class: 'gemgrid' + (withArt ? ' cards' : game.length ? ' named' : '') },
+          ...colors.map(dot),
           h('button', { class: 'gemdot custom' + (panel ? ' active' : ''), type: 'button', title: 'Свой цвет', onclick: () => { panel = !panel; if (panel) hsv = rgb2hsv(gemOf(gemSet) || def); paint(); } }, icon('palette'))),
       ];
       if (panel) {

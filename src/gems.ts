@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 import { blockBounds, eachChild } from './schema-kv.ts';
+import { pngFromVtex } from './vtex.ts';
 
 export type Rgb = [number, number, number];
 export type Gems = Record<string, Rgb>;
@@ -30,8 +31,31 @@ export function cleanGems(raw: unknown): Gems | null {
   return Object.keys(out).length ? out : null;
 }
 
-/** One Prismatic Gem colour, as the game names it. */
-export interface GemColor { key: string; name: string; rgb: Rgb }
+/** One Prismatic Gem colour, as the game names it; `picture`: its own socket picture, when the game ships one. */
+export interface GemColor { key: string; name: string; rgb: Rgb; picture?: string }
+/** The game's picture of a Prismatic Gem and the part of it the colour goes on, as data URLs. */
+export interface GemArt { image: string; mask: string | null }
+
+type Files = { has(p: string): boolean; read(p: string): Buffer | null };
+const socketPicture = (ix: Files, name: string): string | null => {
+  const path = `panorama/images/econ/sockets/${name}_png.vtex_c`;
+  const png = ix.has(path) ? pngFromVtex(ix.read(path)) : null;
+  return png ? `data:image/png;base64,${png.toString('base64')}` : null;
+};
+
+/** The shared Prismatic Gem artwork and its colour overlay, from the installed game; null when it is not there. */
+export function prismaticGemArt(ix: Files): GemArt | null {
+  const image = socketPicture(ix, 'gem_color');
+  return image ? { image, mask: socketPicture(ix, 'gem_color_mask') } : null;
+}
+
+/** The gems with their own socket pictures, for the builds of the game that ship them next to the shared one. */
+export function withGemPictures(gems: GemColor[], ix: Files): GemColor[] {
+  return gems.map((gem) => {
+    const picture = socketPicture(ix, `gem_color_${gem.key.replace(/^unusual_/, '')}`) ?? socketPicture(ix, `gem_color_${gem.key}`);
+    return picture ? { ...gem, picture } : gem;
+  });
+}
 
 /** "UnusualCreatorsLight" as "Creators Light"; digits stay one word: "International 2012". */
 export function gemName(colorName: string): string {

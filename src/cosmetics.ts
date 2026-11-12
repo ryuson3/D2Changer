@@ -28,7 +28,7 @@ import { portraitEntries } from './item-portraits.ts';
 import type { PortraitSwap, SpriteSwap } from './item-builder-assets.ts';
 import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } from './vpk.ts';
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
-import { validGem, cleanGems, gemColors, GEM_SETS, type Gems, type GemColor } from './gems.ts';
+import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles } from './particle-spec.ts';
@@ -686,16 +686,23 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
   }
 
   /** One hero's slots with their wearables, and the sets that fit it. */
-  function heroSlots(heroId: string): { slots: HeroSlotInfo[]; sets: ItemSet[]; gems: GemColor[] } {
+  function heroSlots(heroId: string): { slots: HeroSlotInfo[]; sets: ItemSet[]; gems: GemColor[]; gemArt: GemArt | null } {
     const { slots, sets } = builderOffer();
     const items = load().items;
-    // the game's Prismatic Gems, for the arcanas that take a gem colour
+    // the game's Prismatic Gems and their picture, for the arcanas that take a gem colour
     let gems: GemColor[] = [];
-    if (heroId === 'terrorblade' || heroId === 'techies') try { gems = gemColors(schema.readGameSchema(gamePath).text); } catch { /* the window keeps its own colours */ }
+    let gemArt: GemArt | null = null;
+    if (heroId === 'terrorblade' || heroId === 'techies') {
+      try {
+        const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
+        gems = withGemPictures(gemColors(schema.readGameSchema(gamePath).text), ix);
+        gemArt = prismaticGemArt(ix);
+      } catch { /* the window keeps its own colours */ }
+    }
     return {
       slots: slots.filter(heroOf(heroId)).map(({ kind: _kind, ...slot }) => ({ ...slot, picked: items[slot.slot] ?? null })),
       sets: sets.filter(heroOf(heroId)),
-      gems,
+      gems, gemArt,
     };
   }
 
