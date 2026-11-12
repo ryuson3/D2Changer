@@ -28,9 +28,12 @@ import { portraitEntries } from './item-portraits.ts';
 import type { PortraitSwap, SpriteSwap } from './item-builder-assets.ts';
 import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } from './vpk.ts';
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
+import { validGem, cleanGems, gemColors, GEM_SETS, type Gems, type GemColor } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles } from './particle-spec.ts';
+import { offeredUnusual, effectNames } from './item-unusual.ts';
+import { ITEM_EFFECTS } from './item-builder-effects.ts';
 import { modFolderName, ensureModFolder } from './modfolder.ts';
 import { gemTitles } from './item-kinetics.ts';
 import { findItem, readGameSchema } from './schema-items.ts';
@@ -71,8 +74,8 @@ export interface CosmeticsState {
   icons: Record<string, string>;
   /** effects on free-cosmetic slots that take them (the courier): slot -> effect ids as itemBuilder.effectKey writes them */
   fx: Record<string, string>;
-  /** the colour of Terrorblade's gem, or null: the arcana as the game's own files make it */
-  gem: Rgb | null;
+  /** each gem arcana's colour (src/gems.ts), or null: the arcanas as the game's own files make them */
+  gem: Gems | null;
 }
 
 /** A hero slot's pick: the wearable and its effects as itemBuilder.effectKey writes them. */
@@ -115,9 +118,7 @@ function isTechiesArcana(itemId: string): boolean {
 }
 
 /** A colour from the window: three whole numbers 0-255, or null. */
-export function validGem(c: unknown): Rgb | null {
-  return Array.isArray(c) && c.length === 3 && c.every((n) => Number.isInteger(n) && n >= 0 && n <= 255) ? c as Rgb : null;
-}
+export { validGem };
 /** The recolour set a worn pick brings its gem to, or null: it is no gem item. */
 function gemSetOf(slotId: string, rec: HeroPick): string | null {
   const id = String(rec.itemId);
@@ -128,20 +129,21 @@ function gemSetOf(slotId: string, rec: HeroPick): string | null {
 const wearsGem = (slotId: string, rec: HeroPick) => gemSetOf(slotId, rec) !== null;
 
 /** What a build is made from: the picks of every kind. The pak in the game always matches one of these (`applied`). */
-interface Snap { picks: Record<string, string>; items: Record<string, HeroPick>; icons: Record<string, string>; fx: Record<string, string>; gem: Rgb | null }
+interface Snap { picks: Record<string, string>; items: Record<string, HeroPick>; icons: Record<string, string>; fx: Record<string, string>; gem: Gems | null }
 
 interface Saved {
   /** the mod folder the pak was last written into (dota_russian...) */ folder?: string | null;
-  picks: Record<string, string>; items: Record<string, HeroPick>; icons?: Record<string, string>; fx?: Record<string, string>; gem?: Rgb | null; stamp: string | null;
+  picks: Record<string, string>; items: Record<string, HeroPick>; icons?: Record<string, string>; fx?: Record<string, string>; gem?: Gems | null; stamp: string | null;
   /** the picks the pak in the game was last built from; the picks above can be ahead of it until «Применить косметику» */
   applied?: Snap;
 }
 
-/** The picks as a build sees them (the gem colour only counts while a gem item is worn). */
+/** The picks as a build sees them (a gem colour only counts while its arcana is worn). */
 function snap(s: Pick<Saved, 'picks' | 'items' | 'icons' | 'fx' | 'gem'>): Snap {
   const items = s.items ?? {};
-  const gem = s.gem && Object.entries(items).some(([slotId, rec]) => wearsGem(slotId, rec)) ? s.gem : null;
-  return { picks: s.picks ?? {}, items, icons: s.icons ?? {}, fx: s.fx ?? {}, gem };
+  const worn = new Set(Object.entries(items).map(([slotId, rec]) => gemSetOf(slotId, rec)));
+  const kept = Object.entries(s.gem ?? {}).filter(([set]) => worn.has(set));
+  return { picks: s.picks ?? {}, items, icons: s.icons ?? {}, fx: s.fx ?? {}, gem: kept.length ? Object.fromEntries(kept) : null };
 }
 const canon = (v: unknown): string => JSON.stringify(v, (_k, val) => (val && typeof val === 'object' && !Array.isArray(val)
   ? Object.fromEntries(Object.entries(val).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : val));
@@ -167,11 +169,11 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       const s = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
       const cur = {
         picks: s.picks && typeof s.picks === 'object' ? s.picks : {},
-        items: s.items && typeof s.items === 'object' ? s.items : {}, icons: s.icons && typeof s.icons === 'object' ? s.icons : {}, fx: s.fx && typeof s.fx === 'object' ? s.fx : {}, gem: validGem(s.gem),
+        items: s.items && typeof s.items === 'object' ? s.items : {}, icons: s.icons && typeof s.icons === 'object' ? s.icons : {}, fx: s.fx && typeof s.fx === 'object' ? s.fx : {}, gem: cleanGems(s.gem),
       };
       // a state file from before the apply button: whatever was built then matches the picks (a stamp says something was built)
       const applied: Snap = s.applied && typeof s.applied === 'object'
-        ? snap({ picks: s.applied.picks ?? {}, items: s.applied.items ?? {}, icons: s.applied.icons ?? {}, fx: s.applied.fx ?? {}, gem: validGem(s.applied.gem) })
+        ? snap({ picks: s.applied.picks ?? {}, items: s.applied.items ?? {}, icons: s.applied.icons ?? {}, fx: s.applied.fx ?? {}, gem: cleanGems(s.applied.gem) })
         : s.stamp ? snap(cur) : snap({ picks: {}, items: {}, icons: {}, fx: {}, gem: null });
       return { ...cur, stamp: s.stamp ?? null, folder: s.folder ?? null, applied };
     } catch { return { picks: {}, items: {}, icons: {}, fx: {}, gem: null, stamp: null, applied: snap({ picks: {}, items: {}, icons: {}, fx: {}, gem: null }) }; }
@@ -241,13 +243,13 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
   const underAny = (p: string, prefixes: string[]) => prefixes.some((x) => p.startsWith(x));
 
   /**
-   * Terrorblade's arcana in the gem's colour. The files the picks carry (the arcana's particles
+   * The gem arcanas in their gems' colours, each in its own. The files the picks carry (the arcana's particles
    * copied under the hero's plain paths) are recoloured where they are, and the rest of the set
    * (particles and materials the arcana only names) is Valve's own file in the colour, returned
    * to go under every pick. `ownTo`: the paths a pick filled from the arcana's own particles.
    */
-  function gemOverlay(sets: string[], color: Rgb, stamp: string, patches: schema.SchemaPatch[], ownTo: Set<string>): { beneath: VpkEntry[]; failed: string[] } {
-    const defs = sets.map((x) => ({ set: x, def: RECOLOR_SETS[x] }));
+  function gemOverlay(sets: [string, Rgb][], stamp: string, patches: schema.SchemaPatch[], ownTo: Set<string>): { beneath: VpkEntry[]; failed: string[] } {
+    const defs = sets.map(([x, color]) => ({ set: x, color, def: RECOLOR_SETS[x] }));
     const failed: string[] = [];
     const filled = new Set<string>();
     const hit = (p: string, d: { own: string[]; shared: string[]; materials: string[] }) => underAny(p, d.own) || underAny(p, d.shared) || underAny(p, d.materials);
@@ -265,16 +267,16 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         const material = p.endsWith('.vmat_c') && underAny(p, x.def.materials);
         if (!particle && !material) return en;
         try {
-          const r = particle ? recolorResource(en.data, color, { gem: x.def.gem, own, bake: true }) : recolorMaterial(en.data, color, { bake: true });
+          const r = particle ? recolorResource(en.data, x.color, { gem: x.def.gem, own, bake: true }) : recolorMaterial(en.data, x.color, { bake: true });
           return r.changed ? entryAt(p, r.file) : en;
         } catch { return en; }
       });
     }
-    const key = `${stamp}|${color.join(',')}|${sets.join('+')}`;
+    const key = `${stamp}|${sets.map(([x, c]) => `${x}:${c.join(',')}`).join('+')}`;
     if (gemKept?.key !== key) {
       const files = new Map<string, Buffer>();
       let bad = 0;
-      for (const { set } of defs) {
+      for (const { set, color } of defs) {
         const r = recolorFiles({ pak01: path.join(gamePath, 'dota', 'pak01_dir.vpk'), set, target: color, bake: true });
         for (const [p, data] of r.files) files.set(p, data);
         bad += r.failed.length;
@@ -428,10 +430,11 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       patches.push(...heroPatches);
     }
     let beneath: VpkEntry[] = [];
-    const gemSets = [...new Set(Object.entries(s.items).map(([slotId, rec]) => gemSetOf(slotId, rec)).filter((x): x is string => !!x))];
-    if (s.gem && gemSets.length) {
+    const gemSets = [...new Set(Object.entries(s.items).map(([slotId, rec]) => gemSetOf(slotId, rec)).filter((x): x is string => !!x))]
+      .filter((x) => s.gem?.[x]);
+    if (gemSets.length) {
       try {
-        const g = gemOverlay(gemSets, s.gem, base.stamp, heroPatches, ownTo);
+        const g = gemOverlay(gemSets.map((x) => [x, s.gem![x]] as [string, Rgb]), base.stamp, heroPatches, ownTo);
         beneath = g.beneath;
         failed.push(...g.failed);
       } catch (err) { failed.push(`gem: ${(err as Error)?.message || err}`); }
@@ -683,12 +686,16 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
   }
 
   /** One hero's slots with their wearables, and the sets that fit it. */
-  function heroSlots(heroId: string): { slots: HeroSlotInfo[]; sets: ItemSet[] } {
+  function heroSlots(heroId: string): { slots: HeroSlotInfo[]; sets: ItemSet[]; gems: GemColor[] } {
     const { slots, sets } = builderOffer();
     const items = load().items;
+    // the game's Prismatic Gems, for the arcanas that take a gem colour
+    let gems: GemColor[] = [];
+    if (heroId === 'terrorblade' || heroId === 'techies') try { gems = gemColors(schema.readGameSchema(gamePath).text); } catch { /* the window keeps its own colours */ }
     return {
       slots: slots.filter(heroOf(heroId)).map(({ kind: _kind, ...slot }) => ({ ...slot, picked: items[slot.slot] ?? null })),
       sets: sets.filter(heroOf(heroId)),
+      gems,
     };
   }
 
@@ -736,10 +743,22 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
   /** The effects that can go on top of a pick ('' is none). */
   function effects(scope: 'hero' | 'courier' = 'hero') {
     if (scope === 'courier') return itemBuilder.itemEffects(scope);
-    // the Kinetic Gems are read from the game's own table, so they follow its updates
+    // the Kinetic Gems and the unusual effects are read from the game's own table, so they follow its updates
     let gems: Parameters<typeof itemBuilder.itemEffects>[1] = [];
     try { gems = itemBuilder.offeredKinetics(gamePath, schema.readGameSchema(gamePath).text); } catch { /* no game to read: the listed ones only */ }
-    return itemBuilder.itemEffects(scope, gems);
+    let unusual: Parameters<typeof itemBuilder.itemEffects>[1] = [];
+    try { unusual = gameUnusual(); } catch { /* none */ }
+    return itemBuilder.itemEffects(scope, [...gems, ...unusual]);
+  }
+
+  /** The game's unusual effects the picker offers, named as the game names them in English. */
+  function gameUnusual() {
+    const pak = path.join(gamePath, 'dota', 'pak01_dir.vpk');
+    const ix = sharedVpkIndex(pak);
+    const english = ix.read('resource/localization/dota_english.txt');
+    const names = english ? effectNames(english.toString('utf8')) : new Map<number, string>();
+    const own = new Set(ITEM_EFFECTS.map((e) => e.modifier.toLowerCase()));
+    return offeredUnusual(schema.readGameSchema(gamePath).text, names, (p) => ix.has(p), own);
   }
 
   /** Put a wearable on a hero's slot, with effects, or clear the slot with null. */
@@ -777,12 +796,16 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     return staged();
   }
 
-  /** Terrorblade's gem in a colour, or null for the arcana as the game makes it. */
-  function setGem(color: unknown) {
+  /** One arcana's gem in a colour, or null for that arcana as the game makes it; the other arcana keeps its own. */
+  function setGem(color: unknown, set: unknown = GEM_SET) {
     const s = load();
+    const which = String(set);
+    if (!(GEM_SETS as readonly string[]).includes(which)) throw new Error('Не та аркана для гема.');
     const gem = color === null ? null : validGem(color);
     if (color !== null && !gem) throw new Error('Не тот цвет: нужны три числа от 0 до 255.');
-    save({ ...s, gem });
+    const next: Gems = { ...(s.gem ?? {}) };
+    if (gem) next[which] = gem; else delete next[which];
+    save({ ...s, gem: Object.keys(next).length ? next : null });
     return staged();
   }
 
@@ -921,7 +944,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         slot: slotId, hero, heroName: heroDisplayName(hero), slotLabel: sl?.slotLabel ?? slotId, icon: sl?.icon ?? 'auto_awesome',
         itemId: String(rec.itemId), name: opt?.name ?? null, effects: rec.effects,
         styled: !!(opt && opt.styles && opt.styles.length > 1),
-        gem: wearsGem(slotId, rec) ? s.gem : undefined,
+        gem: wearsGem(slotId, rec) ? s.gem?.[gemSetOf(slotId, rec)!] : undefined,
       };
     }).sort((a, b) => a.heroName.localeCompare(b.heroName) || a.slotLabel.localeCompare(b.slotLabel));
     const catalog = Object.keys(s.icons ?? {}).length ? abilityIcons() : [];

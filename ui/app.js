@@ -237,14 +237,33 @@
         },
       }, fxThumb(e.id, !!e.kinetic), h('span', { class: 'fxname', text: e.name }), on ? h('span', { class: 'fxcheck' }, icon('check_circle')) : null);
     };
-    /* One window for the effects, another for the Kinetic Gems of this hero (never on the courier). */
+    /* One window for the effects, another for the Kinetic Gems of this hero (never on the courier).
+     * The game's unusual effects (Ethereal Flame, Sunfire...) come after the builder's own, in a section with a search: there are many. */
     const kineticIds = new Set(S.effects.filter((e) => e.kinetic).map((e) => e.id));
+    let q = '';
     const fxBody = () => {
       const shown = S.effects.filter((e) => e.id && !(courier && e.heroOnly) && (!e.hero || (!courier && (S.hero === e.hero || (e.heroes || []).includes(S.hero)))))
         .filter((e) => (kinetic ? !!e.kinetic : !e.kinetic));
-      return h('div', { class: 'fxscroll' }, h('div', { class: 'fxgrid' }, ...(kinetic ? shown : fxSorted(shown)).map(tile)));
+      if (kinetic) return h('div', { class: 'fxscroll' }, h('div', { class: 'fxgrid' }, ...shown.map(tile)));
+      const own = shown.filter((e) => !e.unusual), game = shown.filter((e) => e.unusual);
+      const scroll = h('div', { class: 'fxscroll' }, h('div', { class: 'fxgrid' }, ...fxSorted(own).map(tile)));
+      if (game.length) {
+        const list = h('div', { class: 'fxgrid compact' });
+        const fill = () => {
+          const want = q.trim().toLowerCase();
+          const hits = game.filter((e) => !want || e.name.toLowerCase().includes(want));
+          list.replaceChildren(...(hits.length ? hits.map(tile) : [h('div', { class: 'fxempty', text: 'Ничего не найдено' })]));
+        };
+        const input = h('input', { type: 'search', placeholder: 'Найти эффект…', autocomplete: 'off', value: q });
+        input.addEventListener('input', () => { q = input.value; fill(); });
+        scroll.append(h('div', { class: 'fxgamehead' }, h('span', { class: 'fxlabel', text: `Эффекты из игры · ${game.length}` }), h('div', { class: 'grow' }),
+          h('label', { class: 'search' }, icon('search'), input)), list);
+        fill();
+      }
+      return scroll;
     };
-    const paint = () => box.replaceChildren(...[
+    const paint = () => { const top = box.querySelector('.fxscroll')?.scrollTop || 0; paintBox(); const sc = box.querySelector('.fxscroll'); if (sc) sc.scrollTop = top; };
+    const paintBox = () => box.replaceChildren(...[
       h('div', { class: 'fxmenu-head' },
         kinetic ? h('img', { class: 'fxhead-gem', src: 'img/kinetic-gem.jpg', alt: '', draggable: 'false' }) : icon('brush'),
         h('span', { class: 'fxlabel', text: kinetic ? 'Кинетики' : 'Эффекты' }),
@@ -280,9 +299,9 @@
     }, h('img', { src: 'img/kinetic-gem.jpg', alt: '', draggable: 'false' })) : null;
     // the colour of the arcana's gem: a round button with that colour on it, next to the brush
     const color = gemOpt ? h('button', {
-      class: 'fxbrush fxcolor' + (S.gem ? ' on' : '') + (gem ? ' shift' : ''), type: 'button', title: 'Цвет гема', 'aria-label': 'Цвет гема',
-      style: `--gem:${toHex(S.gem || gemOpt.def)}`,
-      onclick: (e) => { e.stopPropagation(); openGemMenu(gemOpt.def, gemOpt.arcana); },
+      class: 'fxbrush fxcolor' + (gemOf(gemOpt.set) ? ' on' : '') + (gem ? ' shift' : ''), type: 'button', title: 'Цвет гема', 'aria-label': 'Цвет гема',
+      style: `--gem:${toHex(gemOf(gemOpt.set) || gemOpt.def)}`,
+      onclick: (e) => { e.stopPropagation(); openGemMenu(gemOpt.def, gemOpt.arcana, gemOpt.set); },
     }, icon('diamond')) : null;
     return h('div', { class: 'cardwrap' }, card, brush, gem, color);
   }
@@ -551,24 +570,28 @@
     finally { picking = false; }
   }
 
-  async function heroGem(color) {
+  async function heroGem(color, set) {
     if (picking) return;
     picking = true;
-    try { await heroDone(await call(api.heroGem, color), color ? 'Цвет гема выбран. Нажми «Применить косметику».' : 'Гем сброшен. Нажми «Применить косметику».'); }
+    try { await heroDone(await call(api.heroGem, color, set), color ? 'Цвет гема выбран. Нажми «Применить косметику».' : 'Гем сброшен. Нажми «Применить косметику».'); }
     finally { picking = false; }
   }
 
-  // The gem's colour for Terrorblade's arcana, in the window of his hero-base slot. It lives in the
-  // arcana's files (the mod has no gem to socket), so it is a colour, not a gem from the game's list.
+  // The gem's colour for Terrorblade's and Techies' arcanas, each its own, in the window of the arcana's slot.
+  // It lives in the arcana's files (the mod has no gem to socket), so it is a colour; the game's own
+  // Prismatic Gems (read from its item table) are offered by name, and any colour besides.
   const GEM_DEFAULT = [255, 60, 40];
   const GEM_DEFAULT_TECHIES = [255, 175, 0];
+  /** colours for when the game's table gave no Prismatic Gems */
   const GEM_COLORS = [GEM_DEFAULT, [255, 175, 0], [255, 140, 20], [255, 214, 40], [90, 220, 90], [30, 210, 220], [60, 110, 255], [170, 80, 255], [255, 90, 200], [235, 235, 235]];
   const toHex = (c) => '#' + c.map((n) => n.toString(16).padStart(2, '0')).join('');
   const fromHex = (v) => [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
+  /** One arcana's colour now, or null. */
+  const gemOf = (set) => (S.gem && S.gem[set]) || null;
   /** The gem the arcana on this card takes, or null: Terrorblade's and Techies' arcanas. */
   function gemFor(o) {
-    if (S.hero === 'terrorblade' && /Fractal Horns/i.test(o.name)) return { def: GEM_DEFAULT, arcana: o.name };
-    if (S.hero === 'techies' && /Swine of the Sunken Galley/i.test(o.name)) return { def: GEM_DEFAULT_TECHIES, arcana: o.name };
+    if (S.hero === 'terrorblade' && /Fractal Horns/i.test(o.name)) return { def: GEM_DEFAULT, arcana: o.name, set: 'terrorblade-arcana' };
+    if (S.hero === 'techies' && /Swine of the Sunken Galley/i.test(o.name)) return { def: GEM_DEFAULT_TECHIES, arcana: o.name, set: 'techies-arcana' };
     return null;
   }
   /* The gem colour window: a big gem showing the colour, a round swatch for each colour, and a picker of its own for any colour. */
@@ -584,16 +607,16 @@
     const [r, g, b] = hh < 60 ? [c, x, 0] : hh < 120 ? [x, c, 0] : hh < 180 ? [0, c, x] : hh < 240 ? [0, x, c] : hh < 300 ? [x, 0, c] : [c, 0, x];
     return [r, g, b].map((n) => Math.round((n + m) * 255));
   };
-  function openGemMenu(def, arcana) {
+  function openGemMenu(def, arcana, gemSet) {
     closeFxMenu();
     const menu = h('div', { class: 'overlay fxoverlay' });
     const box = h('div', { class: 'fxmenu gemmenu', role: 'dialog', 'aria-modal': 'true' });
     menu.append(box);
     const same = (a, b) => !!a && !!b && a.every((n, i) => n === b[i]);
     let panel = false;           // the picker for any colour is open
-    let hsv = rgb2hsv(S.gem || def);
+    let hsv = rgb2hsv(gemOf(gemSet) || def);
     let stage, hexLabel, svEl, svKnob, hueKnob, hexIn, prev;
-    const set = async (c, fromPanel) => { if (c && !fromPanel) hsv = rgb2hsv(c); await heroGem(c); paint(); };
+    const set = async (c, fromPanel) => { if (c && !fromPanel) hsv = rgb2hsv(c); await heroGem(c, gemSet); paint(); };
     // while a knob is dragged the window only follows it; the colour is kept when the mouse is let go
     const sync = () => {
       const hex = toHex(hsv2rgb(hsv));
@@ -614,16 +637,21 @@
       el.addEventListener('pointercancel', end);
     };
     const paint = () => {
-      const cur = S.gem, hex = toHex(cur || def);
-      const colors = [def, ...GEM_COLORS.filter((c) => !same(c, def))];
-      stage = h('div', { class: 'gemstage', style: `--gem:${hex}` }, h('div', { class: 'gembig' }), hexLabel = h('div', { class: 'gemhex', text: hex.toUpperCase() }));
+      const cur = gemOf(gemSet), hex = toHex(cur || def);
+      // the game's Prismatic Gems by name; without them, a few colours of our own
+      const game = (S.heroData && S.heroData.gems) || [];
+      const colors = game.length
+        ? [{ rgb: def, name: 'По умолчанию' }, ...game.filter((g) => !same(g.rgb, def))]
+        : [def, ...GEM_COLORS.filter((c) => !same(c, def))].map((c) => ({ rgb: c, name: toHex(c).toUpperCase() }));
+      const curName = cur ? (colors.find((g) => same(g.rgb, cur)) || {}).name : 'По умолчанию';
+      stage = h('div', { class: 'gemstage', style: `--gem:${hex}` }, h('div', { class: 'gembig' }), hexLabel = h('div', { class: 'gemhex', text: (curName && !/^#/.test(curName) ? curName + ' · ' : '') + hex.toUpperCase() }));
       const kids = [
         h('div', { class: 'fxmenu-head' }, icon('diamond'), h('span', { class: 'fxlabel', text: 'Цвет гема' }), h('span', { class: 'fxmenu-title', text: arcana }),
           h('div', { class: 'grow' }), h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closeFxMenu }, icon('close'))),
         stage,
-        h('div', { class: 'gemgrid' },
-          ...colors.map((c) => h('button', { class: 'gemdot' + (same(cur, c) ? ' active' : ''), type: 'button', title: toHex(c).toUpperCase(), style: `--gem:${toHex(c)}`, onclick: () => set(c) }, same(cur, c) ? icon('check') : null)),
-          h('button', { class: 'gemdot custom' + (panel ? ' active' : ''), type: 'button', title: 'Свой цвет', onclick: () => { panel = !panel; if (panel) hsv = rgb2hsv(S.gem || def); paint(); } }, icon('palette'))),
+        h('div', { class: 'gemgrid' + (game.length ? ' named' : '') },
+          ...colors.map((g) => h('button', { class: 'gemdot' + (same(cur, g.rgb) ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, 'aria-label': g.name, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) }, same(cur, g.rgb) ? icon('check') : null)),
+          h('button', { class: 'gemdot custom' + (panel ? ' active' : ''), type: 'button', title: 'Свой цвет', onclick: () => { panel = !panel; if (panel) hsv = rgb2hsv(gemOf(gemSet) || def); paint(); } }, icon('palette'))),
       ];
       if (panel) {
         svKnob = h('div', { class: 'gemknob' });

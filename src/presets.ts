@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { cleanGems, type Gems } from './gems.ts';
 
 export interface PresetPick { itemId: string; effects: string }
 export interface PresetData {
@@ -12,7 +13,8 @@ export interface PresetData {
   items: Record<string, PresetPick>;
   icons: Record<string, string>;
   fx: Record<string, string>;
-  gem: [number, number, number] | null;
+  /** each gem arcana's colour (src/gems.ts) */
+  gem: Gems | null;
 }
 export interface Preset { id: string; name: string; saved: number; auto?: boolean; data: PresetData }
 
@@ -45,9 +47,7 @@ export function cleanData(raw: unknown): PresetData {
       }
     }
   }
-  const g = r.gem;
-  const gem = Array.isArray(g) && g.length === 3 && g.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
-    ? ([g[0], g[1], g[2]] as [number, number, number]) : null;
+  const gem = cleanGems(r.gem);
   return { picks: strMap(r.picks), items, icons: strMap(r.icons), fx: strMap(r.fx), gem };
 }
 
