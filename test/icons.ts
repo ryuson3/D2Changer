@@ -21,11 +21,17 @@ const heroes = (...h: string[]) => `\t\t\t"used_by_heroes"${NL}\t\t\t{${NL}${h.m
 const swap = (ability: string, icon: string) => `\t\t\t"visuals"${NL}\t\t\t{${NL}\t\t\t\t"asset_modifier"${NL}\t\t\t\t{${NL}\t\t\t\t\t"type"\t\t"ability_icon"${NL}\t\t\t\t\t"asset"\t\t"${ability}"${NL}\t\t\t\t\t"modifier"\t\t"${icon}"${NL}\t\t\t\t}${NL}\t\t\t}${NL}`;
 
 const items = `"items_game"${NL}{${NL}\t"items"${NL}\t{${NL}`
+  + item('7000', f('name', 'Plain Blade') + f('prefab', 'default_item') + f('item_slot', 'weapon') + heroes('npc_dota_hero_antimage'))
   + item('7001', f('name', 'Golden Blade') + f('prefab', 'wearable') + f('item_slot', 'weapon') + heroes('npc_dota_hero_antimage') + swap('antimage_blink', 'antimage_blink_gold'))
   + item('7002', f('name', 'Crimson Blade') + f('prefab', 'wearable') + f('item_slot', 'weapon') + heroes('npc_dota_hero_antimage') + swap('antimage_blink', 'antimage_blink_red'))
   // a swap whose picture is not in the game: not offered
   + item('7003', f('name', 'Ghost Blade') + f('prefab', 'wearable') + f('item_slot', 'weapon') + heroes('npc_dota_hero_antimage') + swap('antimage_blink', 'antimage_blink_missing'))
   + Array.from({ length: 1200 }, (_, i) => item(String(20000 + i), f('name', `filler ${i}`))).join('')
+  + `\t}${NL}`
+  // the gems' table: a picture-only gem (one more picture of Blink), and one for a hero no item names (not offered)
+  + `\t"asset_modifiers"${NL}\t{${NL}`
+  + `\t\t"1"${NL}\t\t{${NL}${f('name', 'moon_blink_icon')}${f('loc_key', '#DOTA_Asset_Mod_Moon_Blink_Icon')}\t\t\t"0"${NL}\t\t\t{${NL}${f('type', 'ability_icon')}${f('asset', 'antimage_blink')}${f('modifier', 'antimage/moon/antimage_blink')}\t\t\t}${NL}\t\t}${NL}`
+  + `\t\t"2"${NL}\t\t{${NL}${f('name', 'ghost_icon')}${f('loc_key', '#DOTA_Asset_Mod_Ghost_Icon')}\t\t\t"0"${NL}\t\t\t{${NL}${f('type', 'ability_icon')}${f('asset', 'nobody_spell')}${f('modifier', 'nobody/nobody_spell')}\t\t\t}${NL}\t\t}${NL}`
   + `\t}${NL}}${NL}`;
 
 const sp = (n: string) => `panorama/images/spellicons/${n}_png.vtex_c`;
@@ -34,6 +40,7 @@ fs.writeFileSync(path.join(game, 'dota', 'pak01_dir.vpk'), buildVpk([
   entryAt(sp('antimage_blink'), Buffer.from('PLAIN')),
   entryAt(sp('antimage_blink_gold'), Buffer.from('GOLD')),
   entryAt(sp('antimage_blink_red'), Buffer.from('RED')),
+  entryAt(sp('antimage/moon/antimage_blink'), Buffer.from('MOON')),
 ]));
 const gi = `"GameInfo"${NL}{${NL}\tFileSystem${NL}\t{${NL}\t\tSearchPaths${NL}\t\t{${NL}\t\t\tGame\tdota${NL}\t\t\tMod\tdota${NL}\t\t\tGame\tcore${NL}\t\t}${NL}\t}${NL}}${NL}`;
 const branch = `"GameInfo"${NL}{${NL}\tFileSystem${NL}\t{${NL}\t\tSteamAppId\t570${NL}\t}${NL}}${NL}`;
@@ -55,7 +62,9 @@ assert.equal(cat.length, 1);
 assert.equal(cat[0].hero, 'antimage');
 const blink = cat[0].abilities.find((a) => a.ability === 'antimage_blink');
 assert.ok(blink);
-assert.deepEqual(blink.variants.map((v) => v.icon), ['antimage_blink', 'antimage_blink_gold', 'antimage_blink_red']);
+assert.deepEqual(blink.variants.map((v) => v.icon), ['antimage_blink', 'antimage_blink_gold', 'antimage_blink_red', 'antimage/moon/antimage_blink']);
+// a picture-only Kinetic Gem is one more variant, named by its title made of its name; a gem of an unknown hero is left out
+assert.equal(blink.variants[3].label, 'Moon Blink Icon');
 assert.equal(blink.variants[1].label, 'Golden Blade');
 assert.equal(blink.name, 'Blink');
 

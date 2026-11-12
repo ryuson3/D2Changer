@@ -14,6 +14,7 @@ import { listItems, eachChild, blockBounds, toUtf8 } from './schema.ts';
 import { itemHeroes } from './item-builder-slots.ts';
 import { normalizeAssetPath } from './item-builder-assets.ts';
 import type { AssetCopy } from './item-builder-slots.ts';
+import { iconOnlyGems } from './item-kinetics.ts';
 
 /** One picture an ability can show. `icon` is the file name under spellicons, without the extension. */
 export interface IconVariant { icon: string; label: string }
@@ -40,7 +41,13 @@ function prettyAbility(ability: string, hero: string): string {
  * always the first variant (icon = the ability's own name); the others come from the items that swap it,
  * and only those whose file really is in pak01 are listed.
  */
-export function abilityIconCatalog(gamePath: string, text: string, log: (msg: string) => void = () => {}): HeroIcons[] {
+export function abilityIconCatalog(
+  gamePath: string,
+  text: string,
+  log: (msg: string) => void = () => {},
+  /** the title of a gem's localization key, when the game's language file is at hand */
+  titleOf: (key: string) => string | undefined = () => undefined,
+): HeroIcons[] {
   const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
   const has = (name: string) => ix.has(spellPath(name)) || ix.has(spellPath(name).toLowerCase());
   // hero -> ability -> icon -> item names
@@ -77,6 +84,25 @@ export function abilityIconCatalog(gamePath: string, text: string, log: (msg: st
         byAbility.set(s.ability, byIcon);
         (byIcon.get(s.icon) || byIcon.set(s.icon, new Set()).get(s.icon)!).add(label);
       }
+    }
+  }
+  // the Kinetic Gems that only change pictures ("Surgical Precision Hook"): each picture is one more variant of its ability. The
+  // hero is the one the ability's name begins with (`pudge_meat_hook`).
+  const heroIds = [...new Set(listItems(text).filter((i) => i.prefab === 'default_item').flatMap((i) => itemHeroes(text, i)).map(canonicalHero))];
+  for (const gem of iconOnlyGems(text)) {
+    const label = (gem.loc && titleOf(gem.loc)) || gem.name.split('_').filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ');
+    for (const p of gem.parts) {
+      if (!p.asset) continue;
+      const ability = normalizeAssetPath(p.asset);
+      const icon = normalizeAssetPath(p.modifier);
+      if (icon === ability) continue;
+      const hero = heroIds.filter((h) => ability.startsWith(`${h}_`)).sort((a, b) => b.length - a.length)[0];
+      if (!hero) { dropped.push(`gem ${gem.name}: no hero for ${ability}`); continue; }
+      const byAbility = found.get(hero) || new Map();
+      found.set(hero, byAbility);
+      const byIcon = byAbility.get(ability) || new Map();
+      byAbility.set(ability, byIcon);
+      (byIcon.get(icon) || byIcon.set(icon, new Set()).get(icon)!).add(label);
     }
   }
   const out: HeroIcons[] = [];

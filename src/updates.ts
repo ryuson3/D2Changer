@@ -7,7 +7,7 @@
  */
 
 /** Where the program's releases live. */
-export const UPDATE_REPO = 'hitoriloveyouchan-ui/d267updater';
+export const UPDATE_REPO = 'ryuson3/d267updater';
 
 export type UpdateInfo = {
   /** A release newer than the running version exists. */

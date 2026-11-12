@@ -63,7 +63,37 @@ export function deploy(opts: DeployOptions): Deployed {
 /** What deploy is given. */
 export interface DeployOptions { gamePath: string; folder: string; patches: SchemaPatch[]; base?: GameSchema; beneath?: VpkEntry[] }
 /** What deploy wrote. */
-export type Deployed = MergeResult & { stamp: string; bytes: number; items: number };
+export type Deployed = MergeResult & { stamp: string; bytes: number; items: number; owners: Record<string, string>; dropped: DroppedFile[] };
+
+/** A file the pak did not take: an earlier one already sat on its path (the pak keeps the first). */
+export interface DroppedFile {
+  /** the path in the pak, lower case */ path: string;
+  /** the source of the file that kept the path */ by: string;
+  /** the source of the file that was left out */ lost: string;
+  /** both files are byte for byte the same: nothing is missing */ same: boolean;
+}
+
+/**
+ * The files of every patch and of `beneath`, one for each path: the first to ask keeps it. Which
+ * source kept each path, and which files were left out (and whether they differed), is returned
+ * too: a pick whose file was dropped shows the stock look instead, and nothing said so.
+ */
+export function collectExtras(patches: SchemaPatch[] | undefined, beneath: VpkEntry[] = []): { extras: VpkEntry[]; owners: Record<string, string>; dropped: DroppedFile[] } {
+  const extras: VpkEntry[] = [];
+  const kept = new Map<string, { source: string; data: Buffer }>();
+  const dropped: DroppedFile[] = [];
+  const groups = [...(patches || []).map((p) => ({ source: p.source || String(p.id), assets: p.assets || [] })), { source: 'beneath', assets: beneath }];
+  for (const { source, assets } of groups) {
+    for (const en of assets) {
+      const key = `${en.folder}/${en.name}.${en.ext}`.toLowerCase();
+      const prev = kept.get(key);
+      if (prev) { dropped.push({ path: key, by: prev.source, lost: source, same: prev.data.equals(en.data) }); continue; }
+      kept.set(key, { source, data: en.data });
+      extras.push(en);
+    }
+  }
+  return { extras, owners: Object.fromEntries([...kept].map(([k, v]) => [k, v.source])), dropped };
+}
 /** A stage of deploySteps; `write` asks the caller to write the pak where it can wait for the disk. */
 export type DeployStep = { stage: 'merged' | 'checked' | 'packed' } | { write: string; data: Buffer } | typeof PAUSE;
 /** temporary files of the pak, one name each: a write in the background and one in place can overlap */
@@ -82,16 +112,7 @@ export function* deploySteps({ gamePath, folder, patches, base = readGameSchema(
   yield { stage: 'merged' };
   const checked = yield* validateSchemaSteps(merged.text, base.text);
   yield { stage: 'checked' };
-  const extras: VpkEntry[] = [];
-  const seen = new Set<string>();
-  for (const assets of [...(patches || []).map((p) => p.assets || []), beneath]) {
-    for (const en of assets) {
-      const key = `${en.folder}/${en.name}.${en.ext}`.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      extras.push(en);
-    }
-  }
+  const { extras, owners, dropped } = collectExtras(patches, beneath);
   const buf = buildSchemaVpk(merged.text, extras);
   yield { stage: 'packed' };
   const dir = path.join(gamePath, folder);
@@ -106,7 +127,7 @@ export function* deploySteps({ gamePath, folder, patches, base = readGameSchema(
     // gone after the rename; left by a failed write, or a build stopped for a newer one
     fs.rmSync(tmp, { force: true });
   }
-  return { ...merged, stamp: base.stamp, bytes: checked.bytes, items: checked.items };
+  return { ...merged, stamp: base.stamp, bytes: checked.bytes, items: checked.items, owners, dropped };
 }
 
 // Any real file left in a directory tree (the engine drops empty rpt/ and save/ folders

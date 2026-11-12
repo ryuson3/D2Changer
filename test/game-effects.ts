@@ -51,7 +51,8 @@ fs.writeFileSync(path.join(game, 'dota', 'pak01_dir.vpk'), buildVpk([
 const c = createCosmetics({ gamePath: game, dataDir: path.join(root, 'data') });
 const list = c.effects();
 assert.equal(list[0].id, '', 'the "no effect" entry is first');
-const built = ['fire', 'lightnings', 'frostbloom', 'snow', 'bubbles', 'sand-storm', 'ghost'];
+const built = ['fire', 'lightnings', 'frostbloom', 'snow', 'sand-storm', 'ghost', 'gold-glow', 'smoke', 'featherfall'];
+assert.deepEqual(c.effects('courier').map((e) => e.id), ['', 'fire', 'lightnings', 'frostbloom', 'snow', 'sand-storm', 'ghost'].concat(list.slice(1 + built.length).map((e) => e.id)), 'the courier does not get the hero-only ones');
 assert.deepEqual(list.slice(1, 1 + built.length).map((e) => e.id), built, 'the hand-made ones stay first');
 const found = list.slice(1 + built.length);
 assert.deepEqual(found.map((e) => e.name), ['Burning Animus', 'Sunfire', 'Sunfire (Sunfire Embers)'],

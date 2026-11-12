@@ -25,14 +25,16 @@ import {
   type SchemaItem,
 } from './schema.ts';
 import {
-  canonicalItemSlot, isPersonaItem, itemHeroes, matchItemSlot, borrowableStock,
+  canonicalItemSlot, isPersonaItem, itemHeroes, matchItemSlot,
 } from './item-builder-slots.ts';
-import { ITEM_EFFECTS, type ItemEffect } from './item-builder-effects.ts';
+import { ITEM_EFFECTS, effectParts, swapsFiles, type ItemEffect } from './item-builder-effects.ts';
+import { kineticById } from './item-kinetics.ts';
 import { itemAssets, normalizeAssetPath, type ItemAssets } from './item-builder-assets.ts';
 import { styleOf, withStyle } from './item-builder-styles.ts';
 
 export { itemSlots, itemSlotsSteps, itemSets, itemOptions } from './item-builder-slots.ts';
-export { itemEffects } from './item-builder-effects.ts';
+export { itemEffects, hasHeroOnlyEffect } from './item-builder-effects.ts';
+export { offeredKinetics } from './item-kinetics.ts';
 export { itemHeroes as heroesOfItem } from './item-builder-slots.ts';
 export { styleOf as styleOfKey } from './item-builder-styles.ts';
 export { gameAssetEntries } from './item-builder-assets.ts';
@@ -64,9 +66,10 @@ function setVisualsBlock(blockText: string, visuals: string): string {
   return close === -1 ? blockText : `${blockText.slice(0, close)}\r\n\t${clean}\r\n${blockText.slice(close)}`;
 }
 
-function itemEffectById(effectId: unknown): ItemEffect | null {
+/** An effect by id: the ones listed in src/item-builder-effects.ts, and, given the game's table, its Kinetic Gems (src/item-kinetics.ts). */
+function itemEffectById(effectId: unknown, text?: string): ItemEffect | null {
   const want = String(effectId || '').trim().toLowerCase();
-  return ITEM_EFFECTS.find((e) => e.id === want) || null;
+  return ITEM_EFFECTS.find((e) => e.id === want) || (text && want.startsWith('kinetic-') ? kineticById(text, want) : null);
 }
 
 /**
@@ -90,6 +93,20 @@ export function effectKey(effectIds: string | string[] | null | undefined): stri
   const unknown = [...want].filter((id) => !known.includes(id)).sort();
   const style = styleOf(ids.join(','));
   return [...known, ...unknown, ...(style ? [`style-${style}`] : [])].join(',');
+}
+
+/** A visuals block without its `particle_create` entries (the item's own ambient particles). */
+function withoutOwnParticles(visuals: string): string {
+  const cut: { start: number; end: number }[] = [];
+  eachChild(visuals, blockBounds(visuals, 0), (c) => {
+    if (!c.isBlock || !/^asset_modifier\d*$/i.test(c.key)) return;
+    let type = '';
+    eachChild(visuals, c.body, (x) => { if (!x.isBlock && x.key.toLowerCase() === 'type') type = x.value.toLowerCase(); });
+    if (type === 'particle_create') cut.push({ start: c.start, end: c.end });
+  });
+  let out = visuals;
+  for (const r of cut.reverse()) out = out.slice(0, r.start) + out.slice(r.end);
+  return out;
 }
 
 function setBlockId(blockText: string, id: string): string {
@@ -200,10 +217,35 @@ function withoutFileSwaps(visuals: string, heroes: Set<string>, stock: Set<strin
   return out;
 }
 
+/** An effect written into the visuals: each of its entries (a Kinetic Gem has several). */
 function appendItemEffect(visuals: string, effect: ItemEffect): string {
+  return effectParts(effect).reduce((out, part) => appendEffectPart(out, part), visuals);
+}
+
+function appendEffectPart(visuals: string, effect: { type: string; asset?: string; modifier: string }): string {
   const needle = String(effect.modifier || '').toLowerCase();
+  const asset = effect.asset ? `\r\n\t"asset"\t\t"${effect.asset}"` : '';
+  const block = `"asset_modifier"\r\n{\r\n\t"type"\t\t"${effect.type}"${asset}\r\n\t"modifier"\t\t"${effect.modifier}"\r\n}`;
+  if (effect.type === 'activity') {
+    // An animation modifier's name ("odachi") also sits inside the item's own particle paths, so a plain text search
+    // would think it is there already: look at the asset_modifier entries themselves.
+    let have = false;
+    eachChild(visuals, blockBounds(visuals, 0), (c) => {
+      if (!c.isBlock || !/^asset_modifier\d*$/i.test(c.key)) return;
+      let type = '', modifier = '';
+      eachChild(visuals, c.body, (x) => {
+        const k = x.key.toLowerCase();
+        if (!x.isBlock && k === 'type') type = x.value.toLowerCase();
+        else if (!x.isBlock && k === 'modifier') modifier = x.value.toLowerCase();
+      });
+      if (type === 'activity' && modifier === needle) have = true;
+    });
+    if (have) return visuals;
+    const end = visuals.lastIndexOf('}');
+    if (end === -1) return visuals;
+    return `${visuals.slice(0, end).replace(/\s*$/, '')}\r\n\t${block}\r\n${visuals.slice(end)}`;
+  }
   if (needle && visuals.toLowerCase().includes(needle)) return visuals;
-  const block = `"asset_modifier"\r\n{\r\n\t"type"\t\t"${effect.type}"\r\n\t"modifier"\t\t"${effect.modifier}"\r\n}`;
   // set from inside the walk, which is why they are widened by hand
   let after = null as number | null;
   let before = null as number | null;
@@ -256,7 +298,7 @@ export function withItemEffects(block: string, effectIds: string | string[] | nu
  * (withoutFileSwaps says why). The particles keep the paid item's paths: the game loads a particle
  * when it is created, and a reconnect keeps them.
  */
-export function itemEffectPatch(baseText: string, itemId: string | number, effectIds: string | string[] | null | undefined, avoid?: Set<string>): { id: string; block: string; borrowed?: string } & ItemAssets {
+export function itemEffectPatch(baseText: string, itemId: string | number, effectIds: string | string[] | null | undefined, avoid?: Set<string>): { id: string; block: string } & ItemAssets {
   const source = findItem(baseText, itemId);
   if (!source) throw new Error(t('items_game: предмет {0} не найден', itemId));
   const target = defaultItemForWearable(baseText, itemId);
@@ -264,7 +306,7 @@ export function itemEffectPatch(baseText: string, itemId: string | number, effec
   const key = effectKey(effectIds);
   // several at once: the window offers them that way, and one unknown id refuses the whole pick
   const effects = key.split(',').filter((id) => id && !/^style-\d+$/.test(id)).map((id) => {
-    const effect = itemEffectById(id);
+    const effect = itemEffectById(id, baseText);
     if (!effect) throw new Error(t('items_game: эффект {0} не найден', id));
     return effect;
   });
@@ -273,17 +315,19 @@ export function itemEffectPatch(baseText: string, itemId: string | number, effec
   const targetFields = itemFields(baseText, target);
   const styled = withStyle(itemVisuals(baseText, source) || '"visuals"\r\n{\r\n}', styleOf(key));
   let visuals = styled.visuals;
+  // a kinetic gem that swaps an ability's particles or picture is written in before the assets are read, so the files are copied like the item's own
+  for (const effect of effects) if (swapsFiles(effect)) visuals = appendItemEffect(visuals, effect);
 
   const assets = itemAssets(baseText, visuals, itemHeroes(baseText, source));
+  // a gem's files that this build of the game does not have are left out, as its pictures are: one missing part does not fail the pick
+  const gemFiles = new Set(effects.filter((e) => e.kinetic).flatMap((e) => effectParts(e).map((p) => normalizeAssetPath(p.modifier))));
+  assets.assetCopies = assets.assetCopies.map((c) => ('to' in c && gemFiles.has(normalizeAssetPath(c.from)) ? { ...c, optional: true } : c));
   // a style with a model of its own wears that one in place of the item's
   const sourceModel = styled.model || sourceFields.get('model_player') || '';
   let targetModel = targetFields.get('model_player') || '';
-  // a stock item with no model: the pick goes under another stock item's path, which a match does load
-  let borrowed: string | undefined;
-  if (!targetModel && sourceModel) {
-    const lend = borrowableStock(baseText, target.id, avoid);
-    if (lend) { targetModel = lend.model; borrowed = lend.id; }
-  }
+  // a stock item with no model gives the game no wearable to hang the item's own particles on: they would play
+  // at the hero's feet (Pangolier's musket glow, a second "gun" on the ground). The effects picked in the window stay.
+  if (!targetModel && sourceModel) visuals = withoutOwnParticles(visuals);
   const underStock = !!sourceModel && !!targetModel && normalizeAssetPath(sourceModel) !== normalizeAssetPath(targetModel);
   if (underStock) assets.assetCopies.unshift({ from: sourceModel, to: targetModel });
 
@@ -301,5 +345,5 @@ export function itemEffectPatch(baseText: string, itemId: string | number, effec
   if (underStock) patched = setScalarField(patched, 'model_player', targetModel);
   else if (styled.model) patched = setScalarField(patched, 'model_player', styled.model);
   patched = setVisualsBlock(patched, visuals);
-  return { id: target.id, block: patched, ...(borrowed ? { borrowed } : {}), ...assets };
+  return { id: target.id, block: patched, ...assets };
 }
