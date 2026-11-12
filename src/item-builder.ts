@@ -29,6 +29,7 @@ import {
 } from './item-builder-slots.ts';
 import { ITEM_EFFECTS, effectParts, swapsFiles, type ItemEffect } from './item-builder-effects.ts';
 import { kineticById } from './item-kinetics.ts';
+import { UNUSUAL, unusualItemEffect } from './item-unusual.ts';
 import { itemAssets, normalizeAssetPath, type ItemAssets } from './item-builder-assets.ts';
 import { styleOf, withStyle } from './item-builder-styles.ts';
 
@@ -69,7 +70,16 @@ function setVisualsBlock(blockText: string, visuals: string): string {
 /** An effect by id: the ones listed in src/item-builder-effects.ts, and, given the game's table, its Kinetic Gems (src/item-kinetics.ts). */
 function itemEffectById(effectId: unknown, text?: string): ItemEffect | null {
   const want = String(effectId || '').trim().toLowerCase();
-  return ITEM_EFFECTS.find((e) => e.id === want) || (text && want.startsWith('kinetic-') ? kineticById(text, want) : null);
+  return ITEM_EFFECTS.find((e) => e.id === want) || (text && want.startsWith('kinetic-') ? kineticById(text, want) : null)
+    || (text && UNUSUAL.test(want) ? unusualItemEffect(text, want) : null);
+}
+
+/** The particle systems the effects of a pick create on the item (for the preview); an id nobody offers adds none. */
+export function effectParticles(effectIds: string | string[] | null | undefined, text?: string): string[] {
+  return effectKey(effectIds).split(',').filter((id) => id && !/^style-\d+$/.test(id)).flatMap((id) => {
+    const effect = itemEffectById(id, text);
+    return effect ? effectParts(effect).filter((p) => p.type === 'particle_create' && /\.vpcf$/i.test(p.modifier)).map((p) => p.modifier.toLowerCase()) : [];
+  });
 }
 
 /**

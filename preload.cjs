@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   heroSet: (setId) => call('hero:set', setId),
   heroReset: (heroId) => call('hero:reset', heroId),
   heroPreview: (heroId) => call('hero:preview', heroId),
-  heroGem: (color) => call('hero:gem', color),
+  heroGem: (color, set) => call('hero:gem', color, set),
   spellList: () => call('spell:list'),
   spellPick: (ability, icon) => call('spell:pick', ability, icon),
   iconsSpells: (names) => call('icons:spells', names),

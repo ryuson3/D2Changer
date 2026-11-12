@@ -196,10 +196,10 @@ app.whenReady().then(async () => {
     const r = c.pickSet(String(setId));
     return { state: c.state(), failed: r.failed };
   });
-  // Terrorblade's gem: [r, g, b] or null (the arcana as the game's own files make it)
-  handle('hero:gem', (color: unknown) => {
+  // a gem arcana's colour: [r, g, b] or null (the arcana as the game's own files make it); `set` says which arcana
+  handle('hero:gem', (color: unknown, set?: unknown) => {
     const c = needGame();
-    const r = c.setGem(color === null ? null : color);
+    const r = c.setGem(color === null ? null : color, set ?? undefined);
     return { state: c.state(), failed: r.failed };
   });
   // ability icons: the abilities with more than one picture, a pick, and the pictures for the window

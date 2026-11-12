@@ -4,10 +4,18 @@
  * bind pose and nothing has to be skinned (src/mesh.ts). A wearable that hangs on a bone the hero's
  * mesh does not have (a weapon in the hand) has to be placed by that bone: not done yet, and said so
  * in `notes` rather than drawn at the hero's feet. Textures are the colour map of each material, read
- * down to 512 px (src/vtex-decode.ts); the game's lighting, normal maps and effects are not shown.
+ * down to 512 px (src/vtex-decode.ts); the game's lighting and normal maps are not shown.
+ *
+ * Effects: the particle systems each worn item brings (and the ones picked on top) go along as specs
+ * (src/particle-def.ts) with the attachment points they hang on, already in the hero's pose; the
+ * window runs them (ui/preview.js). They are an approximation: colour, motion and place, not every
+ * operator the game has.
  */
-import { readModelMeshes, readModelBones, readModelSkeleton, colourTextureOf, invert3x4, multiply3x4, loadMeshopt, type MeshSkin } from './mesh.ts';
-import { idlePose, type PoseResult } from './anim.ts';
+import { readModelMeshes, readModelBones, readModelSkeleton, readModelAttachments, colourTextureOf, invert3x4, multiply3x4, loadMeshopt, type MeshSkin } from './mesh.ts';
+import { resourceBlocks } from './resource.ts';
+import { particleDef, modelParticles } from './particle-spec.ts';
+import { particleSpec, specTextures, type ParticleSpec } from './particle-def.ts';
+import { idlePose, worldOf, type PoseResult } from './anim.ts';
 import { references } from './resource.ts';
 import { decodeVtex, type Pixels } from './vtex-decode.ts';
 import type { VpkIndex } from './vpk.ts';
@@ -15,7 +23,10 @@ import type { VpkIndex } from './vpk.ts';
 export interface PreviewModel {
   label: string; /** as the item table names it, with no _c */ model: string;
   /** what to show when this one cannot be read: the slot's stock item */ fallback?: { label: string; model: string };
+  /** the particle systems it brings (.vpcf), besides the ones its model lists itself */ particles?: string[];
 }
+/** A particle system on model `owner` (an index into the models given; 0 is the hero). */
+export interface PreviewFx { owner: number; spec: ParticleSpec }
 export interface PreviewPartData {
   label: string;
   positions: Float32Array; uvs: Float32Array; normals: Float32Array; indices: Uint32Array;
@@ -26,9 +37,21 @@ export interface PreviewScene {
   parts: PreviewPartData[]; textures: PreviewTexture[];
   /** what is not shown, and why, for people */ notes: string[];
   min: number[]; max: number[];
+  fx: PreviewFx[];
+  /** per model (same index as `owner`): attachment name to its place in the hero's pose */ attachments: Record<string, number[]>[];
+  /** points on the hero's body, x y z each, for systems that spawn on the model */ surface: Float32Array;
+  /** sprite pictures by texture path */ fxTextures: Record<string, PreviewTexture>;
 }
 
 const MAX_TEXTURE = 512;
+const MAX_SPRITE = 128;
+/** Systems across the whole hero: a few hundred would cost the window more than their look is worth. */
+const MAX_SYSTEMS = 160;
+const apply3x4 = (m: number[], p: number[]) => [
+  m[0] * p[0] + m[1] * p[1] + m[2] * p[2] + m[3],
+  m[4] * p[0] + m[5] * p[1] + m[6] * p[2] + m[7],
+  m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
+];
 /** A wearable that hangs on a bone the hero does not have: left out of the picture, and not worth a line of notes. */
 const SKIPPED = '\0skipped';
 const pixelCache = new Map<string, Pixels | null>();
@@ -101,15 +124,80 @@ function pose(P: Float32Array, skin: MeshSkin | undefined, names: string[], only
 }
 
 /**
- * @param models the hero's own model first, then the items it wears
+ * Where a wearable's own bones take its vertices on the hero as he stands. The game gives each of its bones the
+ * hero's bone of that name, so a vertex goes from the wearable's own bind pose (not the hero's: a weapon is often
+ * modelled at the origin, and Faceless Void's mace hung in the air beside him) to where the hero's bone is now. A
+ * bone the hero does not have (a part that only the item moves) follows the nearest bone above it that he has.
+ * @param own  the wearable's inverse bind matrices, as its mesh was skinned
  */
-export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promise<PreviewScene> {
+function wearableMoves(file: Buffer, own: Map<string, number[]>, standing: PoseResult): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  const skin = standing.skin!;
+  const heroWorld = (n: string): number[] | null => {
+    const s = skin.get(n), b = standing.bind.get(n);
+    return s && b ? multiply3x4(s, invert3x4(b)) : null;
+  };
+  const skel = readModelSkeleton(file);
+  if (!skel) {
+    for (const [n, inv] of own) { const w = heroWorld(n); if (w) out.set(n, multiply3x4(w, inv)); }
+    return out;
+  }
+  const bindWorld = worldOf(skel, { pos: skel.pos, rot: skel.rot, scale: skel.names.map(() => 1) });
+  skel.names.forEach((n, i) => {
+    if (out.has(n)) return;
+    let a = i, w: number[] | null = null;
+    for (let hops = 0; a >= 0 && hops < 64; hops++) {
+      w = heroWorld(skel.names[a]);
+      if (w) break;
+      a = skel.parent[a];
+    }
+    if (!w || a < 0) return;
+    out.set(n, multiply3x4(w, own.get(skel.names[a]) ?? invert3x4(bindWorld[a])));
+  });
+  return out;
+}
+
+/**
+ * @param models the hero's own model first, then the items it wears
+ * @param replacements the systems the worn items swap for their own, stock path to the item's
+ * @param tint a particle file as the worn gem colours it (path with no _c), for an arcana with a gem colour chosen
+ */
+export async function buildPreview(ix: VpkIndex, models: PreviewModel[], replacements: Map<string, string> = new Map(), tint?: (path: string, file: Buffer) => Buffer): Promise<PreviewScene> {
   const decoder = await loadMeshopt();
-  const scene: PreviewScene = { parts: [], textures: [], notes: [], min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+  const scene: PreviewScene = { parts: [], textures: [], notes: [], min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], fx: [], attachments: [], surface: new Float32Array(0), fxTextures: {} };
+  const files: (Buffer | null)[] = [];
+  let heroParts = 0;
   const textureAt = new Map<string, number>();
   let heroBones: Map<string, number[]> | null = null;
   let standing: PoseResult | null = null;
   const resolve = (p: string) => ix.read(p);
+
+  /** Model k's attachment points, where they stand on the hero as posed. */
+  const placeAttachments = (file: Buffer, k: number, own: Map<string, number[]>, place: number[] | null, only: string | null, moves: Map<string, number[]> | null) => {
+    const out: Record<string, number[]> = scene.attachments[k] ?? {};
+    for (const a of readModelAttachments(file, resolve)) {
+      if (out[a.name]) continue;
+      const sum = [0, 0, 0];
+      let wsum = 0;
+      a.bones.forEach((b, i) => {
+        const w = a.weights[i];
+        if (!(w > 0)) return;
+        let p = a.offsets[i];
+        if (!a.root[i]) {
+          const inv = own.get(b) ?? heroBones?.get(b);
+          if (!inv) return;
+          p = apply3x4(invert3x4(inv), p);
+        }
+        if (place) p = apply3x4(place, p);
+        const moved = moves?.get(b) ?? standing?.skin?.get(only ?? b);
+        if (moved) p = apply3x4(moved, p);
+        for (let d = 0; d < 3; d++) sum[d] += w * p[d];
+        wsum += w;
+      });
+      if (wsum > 0) out[a.name] = sum.map((x) => x / wsum);
+    }
+    scene.attachments[k] = out;
+  };
 
   /** Put one model in the scene; the reason it could not be shown, or null. */
   const add = (m: { label: string; model: string }, k: number): string | null => {
@@ -135,6 +223,12 @@ export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promis
         only = name;
       }
     }
+    files[k] = file;
+    const ownBones = k === 0 ? heroBones! : readModelBones(file, resolve);
+    // a wearable on several bones: each of its bones goes where the hero's bone of that name is
+    let moves: Map<string, number[]> | null = null;
+    if (k > 0 && !only && standing?.skin) { try { moves = wearableMoves(file, ownBones, standing); } catch { moves = null; } }
+    try { placeAttachments(file, k, ownBones, place, only, moves); } catch { /* no points: its effects stand at the hero's */ }
     const skeletonNames: string[] | undefined = readModelSkeleton(file)?.names;
     let meshes;
     const why: string[] = [];
@@ -159,7 +253,7 @@ export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promis
       }
       let indices = mesh.indices;
       if (standing?.skin) {
-        const moved = pose(P, only ? undefined : mesh.skin, skeletonNames ?? [], only, standing.skin);
+        const moved = pose(P, only ? undefined : mesh.skin, skeletonNames ?? [], only, moves ?? standing.skin);
         // On a wearable, a triangle none of whose corners the pose could move hangs on something the hero's skeleton
         // does not have (a prop made to sit on an attachment). Left where it is it stands at the hero's feet, so it is
         // not drawn, and the note says so.
@@ -183,6 +277,7 @@ export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promis
   };
   models.forEach((m, k) => {
     const failed = add(m, k);
+    if (k === 0) heroParts = scene.parts.length;
     if (failed === null) return;
     if (failed === SKIPPED) return;
     // the slot is not left empty (a bare head, no legs): its stock item stands in, and the note says so
@@ -190,5 +285,54 @@ export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promis
     else scene.notes.push(failed);
   });
   if (!scene.parts.length) { scene.min = [0, 0, 0]; scene.max = [1, 1, 1]; }
+  addEffects(ix, models, files, scene, heroParts, replacements, tint);
   return scene;
+}
+
+/** The particle systems of every model, their sprite pictures, and points on the hero's body to spawn on. */
+function addEffects(ix: VpkIndex, models: PreviewModel[], files: (Buffer | null)[], scene: PreviewScene, heroParts: number, replacements: Map<string, string>, tint?: (path: string, file: Buffer) => Buffer): void {
+  const budget = { left: MAX_SYSTEMS };
+  // a worn item's swap can name a child of a system as well as its root, so every read goes through it
+  const swapped = (p: string) => replacements.get(p.toLowerCase().replace(/_c$/, '')) ?? p.replace(/_c$/i, '');
+  const read = (p: string) => {
+    const path = swapped(p), file = ix.read(`${path}_c`);
+    if (!file || !tint) return file;
+    try { return tint(path.toLowerCase(), file); } catch { return file; }
+  };
+  const seen = new Set<string>();
+  models.forEach((m, k) => {
+    // the body lists its ambient systems itself as well (an arcana's body: its glow and smoke)
+    const own = files[k] ? modelParticles(files[k]) : [];
+    for (const root of new Set([...(m.particles ?? []), ...own])) {
+      if (budget.left <= 0) break;
+      const path = swapped(root);
+      if (seen.has(`${k}|${path}`)) continue;
+      seen.add(`${k}|${path}`);
+      try {
+        const def = particleDef(read, path, budget);
+        if (def) scene.fx.push({ owner: k, spec: particleSpec(def) });
+      } catch { /* a system the reader cannot take is left out */ }
+    }
+  });
+  if (!scene.fx.length) return;
+  for (let k = 0; k < models.length; k++) scene.attachments[k] ??= {};
+  const wanted = new Set<string>();
+  for (const f of scene.fx) specTextures(f.spec, wanted);
+  for (const tex of wanted) {
+    const file = ix.read(`${tex}_c`);
+    // a sheet of frames drawn whole would show as a grid: such a sprite stays a soft glow
+    if (!file || resourceBlocks(file).some((b) => b.name === 'SHEET')) continue;
+    try {
+      const px = decodeVtex(file, MAX_SPRITE);
+      if (px && px.width >= 24) scene.fxTextures[tex] = { width: px.width, height: px.height, rgba: new Uint8Array(px.rgba) };
+    } catch { /* stays a glow */ }
+  }
+  const points: number[] = [];
+  const body = scene.parts.slice(0, heroParts);
+  const total = body.reduce((n, p) => n + p.positions.length / 3, 0);
+  const every = Math.max(1, Math.floor(total / 600));
+  let i = 0;
+  for (const p of body) for (let v = 0; v < p.positions.length; v += 3, i++) if (i % every === 0) points.push(p.positions[v], p.positions[v + 1], p.positions[v + 2]);
+  scene.surface = new Float32Array(points);
+  scene.notes.push('Эффекты в превью приблизительные: цвет, движение и место те же, что в игре, но форма упрощена');
 }

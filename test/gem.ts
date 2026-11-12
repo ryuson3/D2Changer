@@ -64,7 +64,7 @@ assert.equal(c.state().gem, null);
 
 // a colour chosen before the arcana is worn is kept for it, and builds nothing
 const kept = c.setGem([30, 120, 255]);
-assert.deepEqual(c.state().gem, [30, 120, 255]);
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [30, 120, 255] });
 assert.equal(kept.applied, 0);
 assert.equal(c.state().patched, false, 'nothing worn: the game is not touched');
 
@@ -80,7 +80,7 @@ const eq = c.equipped();
 assert.equal(eq.heroItems.length, 1);
 assert.equal(eq.heroItems[0].name, 'Fractal Horns of Inner Abysm');
 assert.deepEqual(eq.heroItems[0].gem, [30, 120, 255]);
-assert.deepEqual(c.state().gem, [30, 120, 255]);
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [30, 120, 255] });
 const mod = fs.readdirSync(game).find((d) => d.startsWith('dota_') && fs.existsSync(path.join(game, d, 'pak99_dir.vpk')));
 assert.ok(mod, 'the pak is in the mod folder');
 const built = path.join(game, mod, 'pak99_dir.vpk');
@@ -90,7 +90,7 @@ assert.equal(readVpkEntryFile(built, 'particles/units/heroes/hero_terrorblade/te
 
 // a new colour rebuilds; null puts the arcana back as the game makes it
 c.setGem([255, 60, 40]);
-assert.deepEqual(c.state().gem, [255, 60, 40]);
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [255, 60, 40] });
 assert.equal(c.state().pending, true);
 assert.ok(c.apply().deployed);
 c.setGem(null);
@@ -100,7 +100,29 @@ assert.equal(c.state().pending, false);
 
 // the colour survives a restart of the module (it is in the state file)
 c.setGem([0, 200, 255]);
-assert.deepEqual(createCosmetics({ gamePath: game, dataDir: path.join(root, 'data') }).state().gem, [0, 200, 255]);
+assert.deepEqual(createCosmetics({ gamePath: game, dataDir: path.join(root, 'data') }).state().gem, { 'terrorblade-arcana': [0, 200, 255] });
+
+// each arcana keeps its own colour: Techies' does not change Terrorblade's
+c.setGem([255, 175, 0], 'techies-arcana');
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [0, 200, 255], 'techies-arcana': [255, 175, 0] });
+c.setGem(null, 'techies-arcana');
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [0, 200, 255] });
+assert.throws(() => c.setGem([1, 2, 3], 'nobody'), /аркана/);
+// a state file from before kept one colour for all: it is read as that colour on each arcana
+const stateFile = path.join(root, 'data', 'cosmetics.json');
+const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+fs.writeFileSync(stateFile, JSON.stringify({ ...saved, gem: [9, 8, 7] }));
+assert.deepEqual(c.state().gem, { 'terrorblade-arcana': [9, 8, 7], 'techies-arcana': [9, 8, 7] });
+c.setGem([0, 200, 255]);
+
+// the game's Prismatic Gems, out of the table's "colors" section
+import { gemColors } from '../src/gems.ts';
+const table = `"items_game"\r\n{\r\n\t"colors"\r\n\t{\r\n\t\t"unusual_creators_light"\r\n\t\t{\r\n\t\t\t"color_name"\t\t"UnusualCreatorsLight"\r\n\t\t\t"hex_color"\t\t"#CCCCFF"\r\n\t\t}\r\n`
+  + `\t\t"unusual_international_2012"\r\n\t\t{\r\n\t\t\t"color_name"\t\t"UnusualInternational2012"\r\n\t\t\t"hex_color"\t\t"#4B69FF"\r\n\t\t}\r\n\t\t"desc_common"\r\n\t\t{\r\n\t\t\t"color_name"\t\t"ItemRarityCommon"\r\n\t\t\t"hex_color"\t\t"#B0C3D9"\r\n\t\t}\r\n\t}\r\n}\r\n`;
+assert.deepEqual(gemColors(table), [
+  { key: 'unusual_creators_light', name: 'Creators Light', rgb: [204, 204, 255] },
+  { key: 'unusual_international_2012', name: 'International 2012', rgb: [75, 105, 255] },
+]);
 
 // taking the arcana off takes the patch out again
 c.pickItem(slot.slot, null);
@@ -108,4 +130,24 @@ assert.equal(c.state().patched, true, 'still in until apply');
 c.apply();
 assert.equal(c.state().patched, false);
 assert.equal(c.equipped().heroItems.length, 0);
+
+// the gem picture comes out of the game's socket textures: the shared one with its mask, a gem's own when it is there
+{
+  const { prismaticGemArt, withGemPictures } = await import('../src/gems.ts');
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8), Buffer.from('IEND'), Buffer.alloc(4)]);
+  const head = Buffer.alloc(16); head.writeUInt32LE(16, 0);
+  const vtex = Buffer.concat([head, png]);
+  const files = new Map([
+    ['panorama/images/econ/sockets/gem_color_png.vtex_c', vtex],
+    ['panorama/images/econ/sockets/gem_color_mask_png.vtex_c', vtex],
+    ['panorama/images/econ/sockets/gem_color_red_png.vtex_c', vtex],
+  ]);
+  const ix = { has: (p: string) => files.has(p), read: (p: string) => files.get(p) ?? null };
+  const art = prismaticGemArt(ix);
+  assert.ok(art && art.image.startsWith('data:image/png;base64,') && art.mask, 'the shared gem picture and its mask');
+  assert.equal(prismaticGemArt({ has: () => false, read: () => null }), null, 'no picture in the game: no art');
+  const pics = withGemPictures([{ key: 'unusual_red', name: 'Red', rgb: [255, 0, 0] }, { key: 'unusual_blue', name: 'Blue', rgb: [0, 0, 255] }], ix);
+  assert.ok(pics[0].picture, 'a gem with its own picture carries it');
+  assert.equal(pics[1].picture, undefined, 'the rest use the shared one');
+}
 console.log('GEM OK');

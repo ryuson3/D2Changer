@@ -16,7 +16,7 @@ import { t } from './i18n.ts';
  * `heroOnly`: offered on hero items only, not on the courier. `hero`: offered on that hero's items only (his id, as the window knows it);
  * `heroes`: the same for a gem that more than one hero wears (`hero` is then the first of them).
  * `kinetic`: a Kinetic Gem; the window lists these in a section of their own, apart from the effects. */
-export type ItemEffect = { id: string; name: string; type: string; modifier: string; asset?: string; heroOnly?: boolean; hero?: string; heroes?: string[]; kinetic?: boolean; parts?: EffectPart[] };
+export type ItemEffect = { id: string; name: string; type: string; modifier: string; asset?: string; heroOnly?: boolean; hero?: string; heroes?: string[]; kinetic?: boolean; unusual?: boolean; parts?: EffectPart[] };
 
 /** One asset_modifier an effect writes. A Kinetic Gem is an entry of items_game's `asset_modifiers` table and carries several
  * (Bladekeeper's Omnislash: two particles and the ability's picture), so an effect may list them in `parts`; without it the
@@ -168,16 +168,16 @@ export const ITEM_EFFECTS: ItemEffect[] = [
   },
 ];
 
-/** The effect variants the synthetic cosmetics/items picker can apply. `more`: the Kinetic Gems made from the game's own table (src/item-kinetics.ts). */
-export function itemEffects(scope: 'hero' | 'courier' = 'hero', more: ItemEffect[] = []): { id: string; name: string; heroOnly?: boolean; hero?: string; heroes?: string[]; kinetic?: boolean }[] {
+/** The effect variants the synthetic cosmetics/items picker can apply. `more`: the Kinetic Gems made from the game's own table (src/item-kinetics.ts) and its unusual effects (src/item-unusual.ts). */
+export function itemEffects(scope: 'hero' | 'courier' = 'hero', more: ItemEffect[] = []): { id: string; name: string; heroOnly?: boolean; hero?: string; heroes?: string[]; kinetic?: boolean; unusual?: boolean }[] {
   const all = [...ITEM_EFFECTS, ...more.filter((m) => !ITEM_EFFECTS.some((e) => e.id === m.id))];
   const list = scope === 'courier' ? all.filter((e) => !e.heroOnly) : all;
-  return [{ id: '', name: t('Без эффекта') }, ...list.map(({ id, name, heroOnly, hero, heroes, kinetic }) => ({ id, name: t(name), ...(heroOnly ? { heroOnly: true } : {}), ...(hero ? { hero } : {}), ...(heroes ? { heroes } : {}), ...(kinetic ? { kinetic: true } : {}) }))];
+  return [{ id: '', name: t('Без эффекта') }, ...list.map(({ id, name, heroOnly, hero, heroes, kinetic, unusual }) => ({ id, name: unusual ? name : t(name), ...(heroOnly ? { heroOnly: true } : {}), ...(hero ? { hero } : {}), ...(heroes ? { heroes } : {}), ...(kinetic ? { kinetic: true } : {}), ...(unusual ? { unusual: true } : {}) }))];
 }
 
 /** Whether an effect key (as effectKey writes it) carries an effect that is for hero items only. */
 export function hasHeroOnlyEffect(key: string): boolean {
   const ids = new Set(String(key || '').split(',').map((x) => x.trim().toLowerCase()));
-  // the Kinetic Gems made from the game's table (src/item-kinetics.ts) are all for heroes
-  return ITEM_EFFECTS.some((e) => e.heroOnly && ids.has(e.id)) || [...ids].some((id) => id.startsWith('kinetic-'));
+  // the Kinetic Gems and the unusual effects made from the game's table (src/item-kinetics.ts, src/item-unusual.ts) are all for heroes
+  return ITEM_EFFECTS.some((e) => e.heroOnly && ids.has(e.id)) || [...ids].some((id) => id.startsWith('kinetic-') || id.startsWith('unusual-'));
 }

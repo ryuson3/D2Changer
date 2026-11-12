@@ -14,13 +14,12 @@
     <header id="titlebar">
       <div class="brand">
         <img class="brand-ico" src="../assets/icon.png" alt="">
-        <span class="pill">D2SkinChanger</span>
+        <span class="brand-name">D2SKINCHANGER</span>
       </div>
       <nav class="tabs"><button id="tabCos" class="tab active" type="button">Косметика</button><button id="tabSet" class="tab" type="button">Настройки</button></nav>
       <div class="grow"></div>
-      <label class="search"><span class="mi">search</span><input id="search" type="search" placeholder="Поиск…" autocomplete="off"></label>
+      <label class="search"><span class="mi">search</span><input id="search" type="search" placeholder="Поиск героя или предмета" aria-label="Поиск" autocomplete="off"></label>
       <button id="updBtn" class="updbtn" type="button" hidden><span class="mi">system_update_alt</span><span id="updText"></span></button>
-      <button id="aboutBtn" class="iconbtn" type="button" aria-label="О программе" title="О программе"><span class="mi">info</span></button>
       <div class="winctl">
         <button id="wmin" type="button" aria-label="Свернуть"><span class="mi">remove</span></button>
         <button id="wmax" type="button" aria-label="Развернуть"><span class="mi">crop_square</span></button>
@@ -36,37 +35,12 @@
     <footer id="bar">
       <div class="status"><i id="dot" class="dot"></i><span id="statusText">Проверяю игру…</span></div>
       <div class="grow"></div>
-      <button id="safeBtn" class="chip" type="button" role="switch" aria-checked="true">
-        <span class="mi">shield</span><span>Безопасно: <b id="safeLabel">вкл</b></span><i class="toggle"></i>
-      </button>
-      <button id="folderBtn" class="chip" type="button"><span class="mi">folder_open</span><span>Папка модов</span></button>
-      <button id="applyBtn" class="chip apply" type="button"><span class="mi">auto_fix_high</span><span id="applyLabel">Применить косметику</span></button>
-      <button id="playBtn" class="play" type="button"><span class="mi">play_arrow</span><span>Играть</span></button>
+      <button id="folderBtn" class="barbtn ghost" type="button">Папка модов</button>
+      <button id="applyBtn" class="barbtn apply" type="button"><span id="applyLabel">Применить косметику</span></button>
+      <button id="playBtn" class="barbtn play" type="button">Играть</button>
     </footer>
   </div>
-  <div id="about" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
-    <div class="sheet">
-      <h2 id="aboutTitle">О программе</h2>
-      <p><b>Менеджер модов</b>: окно «Косметика» собрано на коде <b>Dota 2 Mod Manager</b> (GPL-3.0-or-later). Это изменённая версия, не оригинальное приложение. Изменено 20.10.2026: окно отделено от оригинала, у него своё хранилище состояния, метка патча и имя папки.</p>
-      <dl>
-        <dt>Dota 2 Mod Manager</dt><dd>© 2026 TheFleece (github.com/TheFleece): патчер, схема предметов, работа с VPK</dd>
-        <dt>Конструктор предметов героев</dt><dd>© 2026 h6rd (github.com/h6rd) вместе с TheFleece: предметы героев, наборы, эффекты, стили, арканы</dd>
-        <dt>Проверка арканов</dt><dd>J0nathan550 (github.com/J0nathan550): таблица того, какие арканы работают в игре</dd>
-        <dt>Лицензия</dt><dd>GPL-3.0-or-later; исходный код этой версии открыт на тех же условиях. Приложение не связано с Valve.</dd>
-      </dl>
-      <button id="aboutClose" class="btn primary" type="button">Закрыть</button>
-    </div>
-  </div>
   <div id="pickerHost" class="overlay" hidden></div>
-  <div id="confirmDlg" class="overlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="cfTitle">
-    <div class="sheet confirm-box">
-      <div class="tool-head"><span id="cfIcon" class="mi">shield</span><div class="tool-title" id="cfTitle"></div></div>
-      <p id="cfText"></p>
-      <ul id="cfList" class="cf-list"></ul>
-      <p id="cfNote" class="tool-cost"></p>
-      <div class="actions"><button id="cfNo" class="btn" type="button"></button><button id="cfYes" class="btn primary" type="button"></button></div>
-    </div>
-  </div>
   <div id="toolDlg" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="toolDlgTitle">
     <div class="sheet tool-box">
       <div class="tool-head">
