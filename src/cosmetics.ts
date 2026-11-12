@@ -30,7 +30,6 @@ import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } fr
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
 import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
-import { withResidentModels, keepsLoaded, type Resident } from './resident-models.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles, entityModel, particleReplacements, heroLoadoutParticles } from './particle-spec.ts';
 import { offeredUnusual, effectNames } from './item-unusual.ts';
@@ -137,7 +136,7 @@ interface Snap { picks: Record<string, string>; items: Record<string, HeroPick>;
  * built by an older one is pending again, so «Применить косметику» is there to press after an
  * update of the app; without it the button stayed off and the game kept the old build's files.
  */
-export const BUILD_REV = 3;
+export const BUILD_REV = 4;
 
 interface Saved {
   /** the BUILD_REV the pak in the game was built by */ rev?: number;
@@ -383,7 +382,6 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       } catch { /* the wearable is gone: its own pick reports it */ }
     }
     const refitLines: string[] = [];
-    const residents: Resident[] = [];
     for (const [slotId, rec] of Object.entries(s.items)) {
       const avoid = undefined;
       const key = `${rec.itemId}|${itemBuilder.effectKey(rec.effects)}${avoid ? `|${[...avoid].sort().join(',')}` : ''}`;
@@ -399,23 +397,12 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         }
         if (swaps.size) pick = refitPick(pick, swaps, slotId, refitLines);
         heroPatches.push({ id: pick.id, block: pick.block, assets: pick.assets, source: slotId });
-        // a model with no stock path under it stays loaded through the hero's own model (src/resident-models.ts)
-        if (pick.resident) {
-          const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
-          for (const h of mine) {
-            try { residents.push({ patch: heroPatches.length - 1, heroModel: `${normalizeAssetPath(heroModelPath(ix, `npc_dota_hero_${h}`))}_c`, model: pick.resident }); }
-            catch { /* a hero with no model of its own in the script */ }
-          }
-        }
         const trace = traceOf(slotId, rec, pick.id);
         trace.paths = pick.assetCopies.flatMap((c) => {
           if (!('to' in c)) return [];
           const to = normalizeAssetPath(c.to).toLowerCase();
           return [to.endsWith('_c') ? to : `${to}_c`];
         });
-        // the hero's model that keeps this pick's model loaded shows in the report with the pick's own files
-        const kept = residents.find((r) => r.patch === heroPatches.length - 1);
-        if (kept) trace.resident = { heroModel: kept.heroModel, model: normalizeAssetPath(kept.model), linked: false };
         traces.push(trace);
         for (const copy of pick.assetCopies) {
           if (!('to' in copy)) continue;
@@ -437,16 +424,6 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(path.join(dataDir, 'refit-report.txt'), lines.join('\n'));
       } catch { /* only a help */ }
-    }
-    if (residents.length) {
-      const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
-      failed.push(...withResidentModels(heroPatches, residents, (p) => ix.read(p)));
-      for (const t of traces) {
-        const r = t.resident;
-        if (!r) continue;
-        const en = heroPatches.flatMap((p) => p.assets ?? []).find((x) => entryPath(x).toLowerCase() === r.heroModel);
-        try { r.linked = !!en && keepsLoaded(en.data, r.model); } catch { r.linked = false; }
-      }
     }
     if (heroPatches.length) {
       // Two picks rewrite the same soundevents file, portrait settings and sprite sheet, and the

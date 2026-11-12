@@ -308,7 +308,7 @@ export function withItemEffects(block: string, effectIds: string | string[] | nu
  * (withoutFileSwaps says why). The particles keep the paid item's paths: the game loads a particle
  * when it is created, and a reconnect keeps them.
  */
-export function itemEffectPatch(baseText: string, itemId: string | number, effectIds: string | string[] | null | undefined, avoid?: Set<string>): { id: string; block: string; /** the model the block names with no stock path under it (src/resident-models.ts) */ resident?: string } & ItemAssets {
+export function itemEffectPatch(baseText: string, itemId: string | number, effectIds: string | string[] | null | undefined, avoid?: Set<string>): { id: string; block: string } & ItemAssets {
   const source = findItem(baseText, itemId);
   if (!source) throw new Error(t('items_game: предмет {0} не найден', itemId));
   const target = defaultItemForWearable(baseText, itemId);
@@ -355,5 +355,5 @@ export function itemEffectPatch(baseText: string, itemId: string | number, effec
   if (underStock) patched = setScalarField(patched, 'model_player', targetModel);
   else if (styled.model) patched = setScalarField(patched, 'model_player', styled.model);
   patched = setVisualsBlock(patched, visuals);
-  return { id: target.id, block: patched, ...(!targetModel && sourceModel ? { resident: sourceModel } : {}), ...assets };
+  return { id: target.id, block: patched, ...assets };
 }
