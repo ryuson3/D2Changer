@@ -477,44 +477,35 @@ button:disabled { opacity: .5; cursor: default; }
 .fxbrush.fxcolor, .fxbrush.fxcolor:hover, .fxbrush.fxcolor.on { background: var(--gem); border-color: rgba(255,255,255,.55); }
 .fxcolor .mi { color: #fff; font-size: 17px; filter: drop-shadow(0 0 2px rgba(0,0,0,.7)); }
 .cardwrap:hover > .fxcolor, .fxcolor:focus-visible, .fxcolor.on { opacity: 1; }
-.gemmenu { width: min(440px, 100%); }
-.gemstage { display: grid; place-items: center; gap: 22px; padding: 38px 0 20px; margin-bottom: 18px; border-radius: 16px; border: 1px solid var(--line);
-  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--gem) 30%, transparent), transparent 68%), rgba(255,255,255,.03); transition: background .25s; }
-.gembig { width: 78px; height: 78px; transform: rotate(45deg); border-radius: 18px; border: 2px solid rgba(255,255,255,.4); transition: background .25s, box-shadow .25s;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--gem) 55%, #fff), var(--gem) 55%, color-mix(in srgb, var(--gem) 65%, #000));
-  box-shadow: 0 0 42px color-mix(in srgb, var(--gem) 75%, transparent), inset 0 0 18px rgba(255,255,255,.35); }
-.gemhex { font: 600 12.5px var(--font); letter-spacing: .1em; color: var(--muted); }
-.gemgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; justify-items: center; margin-bottom: 18px; }
-/* the game's gems are a few dozen: smaller dots in more columns, scrolled */
-.gemgrid.named { grid-template-columns: repeat(9, 1fr); gap: 10px; max-height: 210px; overflow-y: auto; padding: 4px; }
-.gemgrid.named .gemdot { width: 34px; height: 34px; }
-/* with the game's gem picture: a card per gem, its picture in its colour and its name */
-.gemgrid.cards { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; max-height: 300px; overflow-y: auto; padding: 4px; justify-items: stretch; align-items: start; }
-.gemcard { position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; border-radius: 12px; border: 2px solid transparent;
-  background: var(--tile); color: var(--text); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+/* the gems tab of the slot window: the colour now, a card for each gem */
+.picker-tabs { display: flex; gap: 6px; }
+.tabcount { margin-left: 2px; padding: 1px 7px; border-radius: 10px; background: rgba(var(--ui-rgb),.14); font-size: 11.5px; }
+.pillbtn.small.active .tabcount { background: rgba(0,0,0,.18); }
+.gemrow { margin-bottom: 12px; gap: 10px; }
+.gemnow { display: inline-flex; align-items: center; gap: 8px; font: 600 12.5px var(--font); letter-spacing: .06em; color: var(--muted); }
+.gemnow i { width: 16px; height: 16px; border-radius: 50%; background: var(--gem); border: 1px solid rgba(255,255,255,.4); box-shadow: 0 0 10px var(--gem); }
+.gemgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; align-items: start; }
+.gemcard { position: relative; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 14px; border: 2px solid transparent;
+  background: var(--tile); color: var(--text); cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
 .gemcard:hover { border-color: var(--line-strong); }
-.gemcard.active { border-color: var(--gem); box-shadow: 0 0 14px color-mix(in srgb, var(--gem) 60%, transparent); }
-.gemart { position: relative; display: block; width: 56px; height: 56px; isolation: isolate; object-fit: contain; }
+.gemcard.active { border-color: var(--gem); box-shadow: 0 0 16px color-mix(in srgb, var(--gem) 55%, transparent); }
+.gemmedia { display: grid; place-items: center; height: 104px;
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--gem) 34%, transparent), transparent 70%), rgba(255,255,255,.03); }
+.gemart { position: relative; display: block; width: 84px; height: 84px; isolation: isolate; object-fit: contain; }
 .gemart > img, .gemtint { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .gemtint { background: var(--gem); -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; mix-blend-mode: multiply; }
 .gemart > .gemfacets { mix-blend-mode: luminosity; opacity: .72; }
-.gemname { font-size: 11.5px; line-height: 1.2; text-align: center; color: var(--sub); overflow-wrap: anywhere; }
-.gemcheck { position: absolute; top: 3px; right: 3px; display: flex; }
-.gemcheck .mi { font-size: 18px; color: var(--ok); }
-.gemgrid.cards .gemdot.custom { align-self: center; justify-self: center; }
-.gemdot { position: relative; width: 44px; height: 44px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); background: var(--gem); color: #fff;
-  display: grid; place-items: center; cursor: pointer; transition: transform .12s, box-shadow .15s, border-color .15s; }
-.gemdot:hover { transform: scale(1.1); }
-.gemdot.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.2), 0 0 16px var(--gem); }
-.gemdot .mi { font-size: 22px; filter: drop-shadow(0 0 3px rgba(0,0,0,.65)); }
-.gemdot.custom { box-sizing: border-box; border: 0; isolation: isolate; overflow: hidden; clip-path: circle(50%);
-  background: conic-gradient(from 0deg, #ff4d4d, #ffd84d, #5be05b, #4dd9e0, #4d6dff, #c84dff, #ff4d4d); box-shadow: inset 0 0 0 2px rgba(255,255,255,.22); }
-.gemdot.custom:hover { transform: scale(1.1); }
-.gemdot.custom::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(255,255,255,.28); pointer-events: none; }
-.gemdot.custom input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
-
-/* the picker for any colour, in the gem window */
-.gempanel { display: grid; gap: 14px; margin: 0 0 18px; }
+/* no gem picture in the game: a gem of our own in that colour */
+.gemart.plain { width: 46px; height: 46px; transform: rotate(45deg); border-radius: 11px; border: 2px solid rgba(255,255,255,.4);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--gem) 55%, #fff), var(--gem) 55%, color-mix(in srgb, var(--gem) 65%, #000));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--gem) 70%, transparent), inset 0 0 10px rgba(255,255,255,.35); }
+.gemname { padding: 8px 10px 10px; font-size: 12.5px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.gemcheck { position: absolute; top: 5px; right: 5px; display: flex; }
+.gemcheck .mi { font-size: 19px; color: var(--ok); }
+/* the picker for any colour, above the gems */
+.gempanel { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: center; margin: 0 0 16px; }
+.gempanel-side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.picker-body.gems { overflow-x: hidden; }
 .gemsv { position: relative; height: 150px; border-radius: 12px; overflow: hidden; cursor: crosshair; touch-action: none; background: hsl(var(--hue, 0), 100%, 50%); }
 .gemsv::before, .gemsv::after { content: ''; position: absolute; inset: 0; pointer-events: none; }
 .gemsv::before { background: linear-gradient(90deg, #fff, rgba(255,255,255,0)); }

@@ -300,7 +300,7 @@
     const color = gemOpt ? h('button', {
       class: 'fxbrush fxcolor' + (gemOf(gemOpt.set) ? ' on' : '') + (gem ? ' shift' : ''), type: 'button', title: 'Цвет гема', 'aria-label': 'Цвет гема',
       style: `--gem:${toHex(gemOf(gemOpt.set) || gemOpt.def)}`,
-      onclick: (e) => { e.stopPropagation(); openGemMenu(gemOpt.def, gemOpt.arcana, gemOpt.set); },
+      onclick: (e) => { e.stopPropagation(); S.pickerTab = 'gems'; renderPicker(); },
     }, icon('diamond')) : null;
     return h('div', { class: 'cardwrap' }, card, brush, gem, color);
   }
@@ -593,7 +593,6 @@
     if (S.hero === 'techies' && /Swine of the Sunken Galley/i.test(o.name)) return { def: GEM_DEFAULT_TECHIES, arcana: o.name, set: 'techies-arcana' };
     return null;
   }
-  /* The gem colour window: a big gem showing the colour, a round swatch for each colour, and a picker of its own for any colour. */
   const rgb2hsv = ([r, g, b]) => {
     r /= 255; g /= 255; b /= 255;
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
@@ -606,95 +605,85 @@
     const [r, g, b] = hh < 60 ? [c, x, 0] : hh < 120 ? [x, c, 0] : hh < 180 ? [0, c, x] : hh < 240 ? [0, x, c] : hh < 300 ? [x, 0, c] : [c, 0, x];
     return [r, g, b].map((n) => Math.round((n + m) * 255));
   };
-  function openGemMenu(def, arcana, gemSet) {
-    closeFxMenu();
-    const menu = h('div', { class: 'overlay fxoverlay' });
-    const box = h('div', { class: 'fxmenu gemmenu', role: 'dialog', 'aria-modal': 'true' });
-    menu.append(box);
-    const same = (a, b) => !!a && !!b && a.every((n, i) => n === b[i]);
-    let panel = false;           // the picker for any colour is open
-    let hsv = rgb2hsv(gemOf(gemSet) || def);
-    let stage, hexLabel, svEl, svKnob, hueKnob, hexIn, prev;
-    const set = async (c, fromPanel) => { if (c && !fromPanel) hsv = rgb2hsv(c); await heroGem(c, gemSet); paint(); };
-    // while a knob is dragged the window only follows it; the colour is kept when the mouse is let go
-    const sync = () => {
-      const hex = toHex(hsv2rgb(hsv));
-      stage.style.setProperty('--gem', hex);
-      hexLabel.textContent = hex.toUpperCase();
-      svEl.style.setProperty('--hue', Math.round(hsv[0]));
-      svKnob.style.left = hsv[1] * 100 + '%'; svKnob.style.top = (1 - hsv[2]) * 100 + '%'; svKnob.style.background = hex;
-      hueKnob.style.left = hsv[0] / 360 * 100 + '%'; hueKnob.style.background = `hsl(${Math.round(hsv[0])},100%,50%)`;
-      hexIn.value = hex; prev.style.setProperty('--gem', hex);
+  /* The gems of the worn arcana: a tab of the slot window, next to its items. A card for each Prismatic Gem,
+   * and a picker for any colour. The window is drawn again after every pick, so what is open is kept here. */
+  const sameRgb = (a, b) => !!a && !!b && a.every((n, i) => n === b[i]);
+  const GP = { set: null, panel: false, hsv: null };
+  function gemColorsOf(def) {
+    // the game's Prismatic Gems by name; without them, a few colours of our own
+    const game = (S.heroData && S.heroData.gems) || [];
+    return game.length
+      ? [{ rgb: def, name: 'По умолчанию' }, ...game.filter((g) => !sameRgb(g.rgb, def))]
+      : [def, ...GEM_COLORS.filter((c) => !sameRgb(c, def))].map((c, i) => ({ rgb: c, name: i ? toHex(c).toUpperCase() : 'По умолчанию' }));
+  }
+  /** `row`: the colour now and its buttons; `body`: the picker for any colour (when open) and the gems. */
+  function gemPane({ def, set: gemSet }) {
+    if (GP.set !== gemSet) { GP.set = gemSet; GP.panel = false; GP.hsv = null; }
+    const cur = gemOf(gemSet), hex = toHex(cur || def);
+    if (!GP.hsv) GP.hsv = rgb2hsv(cur || def);
+    const colors = gemColorsOf(def);
+    const curName = cur ? (colors.find((g) => sameRgb(g.rgb, cur)) || {}).name : 'По умолчанию';
+    const set = async (c, fromPanel) => { if (!fromPanel) GP.hsv = c ? rgb2hsv(c) : null; await heroGem(c, gemSet); };
+
+    // a gem as the game draws it: its own socket picture, the shared gem picture with the colour laid on its mask, or a plain gem
+    const art = S.heroData && S.heroData.gemArt;
+    const gemPic = (g) => {
+      if (g.picture) return h('img', { class: 'gemart', src: g.picture, alt: '', draggable: 'false' });
+      if (!art) return h('span', { class: 'gemart plain' });
+      return h('span', { class: 'gemart' },
+        h('img', { src: art.image, alt: '', draggable: 'false' }),
+        art.mask ? h('span', { class: 'gemtint', style: `-webkit-mask-image:url("${art.mask}");mask-image:url("${art.mask}")` }) : null,
+        art.mask ? h('img', { class: 'gemfacets', src: art.mask, alt: '', draggable: 'false' }) : null);
     };
-    const drag = (el, onMove) => {
-      let on = false;
-      const at = (e) => { const r = el.getBoundingClientRect(); onMove(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))); sync(); };
-      el.addEventListener('pointerdown', (e) => { on = true; el.setPointerCapture(e.pointerId); at(e); });
-      el.addEventListener('pointermove', (e) => { if (on) at(e); });
-      const end = () => { if (on) { on = false; set(hsv2rgb(hsv), true); } };
-      el.addEventListener('pointerup', end);
-      el.addEventListener('pointercancel', end);
+    const card = (g) => {
+      const on = cur ? sameRgb(cur, g.rgb) : g.rgb === def;
+      return h('button', { class: 'gemcard' + (on ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, style: `--gem:${toHex(g.rgb)}`,
+        onclick: () => set(g.rgb === def ? null : g.rgb) },
+        h('span', { class: 'gemmedia' }, gemPic(g)), h('span', { class: 'gemname', text: g.name }), on ? h('span', { class: 'gemcheck' }, icon('check_circle')) : null);
     };
-    const paint = () => {
-      const cur = gemOf(gemSet), hex = toHex(cur || def);
-      // the game's Prismatic Gems by name; without them, a few colours of our own
-      const game = (S.heroData && S.heroData.gems) || [];
-      const colors = game.length
-        ? [{ rgb: def, name: 'По умолчанию' }, ...game.filter((g) => !same(g.rgb, def))]
-        : [def, ...GEM_COLORS.filter((c) => !same(c, def))].map((c) => ({ rgb: c, name: toHex(c).toUpperCase() }));
-      const curName = cur ? (colors.find((g) => same(g.rgb, cur)) || {}).name : 'По умолчанию';
-      // a gem as the game draws it: its own socket picture, or the shared gem picture with the colour laid on its mask
-      const art = S.heroData && S.heroData.gemArt;
-      const gemPic = (g) => {
-        if (g.picture) return h('img', { class: 'gemart', src: g.picture, alt: '', draggable: 'false' });
-        if (!art) return null;
-        return h('span', { class: 'gemart', style: `--gem:${toHex(g.rgb)}` },
-          h('img', { src: art.image, alt: '', draggable: 'false' }),
-          art.mask ? h('span', { class: 'gemtint', style: `-webkit-mask-image:url("${art.mask}");mask-image:url("${art.mask}")` }) : null,
-          art.mask ? h('img', { class: 'gemfacets', src: art.mask, alt: '', draggable: 'false' }) : null);
+
+    const nowText = h('span', { class: 'gemnow-text', text: (curName ? curName + ' · ' : '') + hex.toUpperCase() });
+    const now = h('span', { class: 'gemnow', style: `--gem:${hex}` }, h('i'), nowText);
+    const row = h('div', { class: 'fxrow gemrow' },
+      h('span', { class: 'fxlabel', text: 'Цвет гема' }), now,
+      h('div', { class: 'grow' }),
+      h('button', { class: 'pillbtn small' + (GP.panel ? ' active' : ''), type: 'button', onclick: () => { GP.panel = !GP.panel; if (GP.panel) GP.hsv = rgb2hsv(gemOf(gemSet) || def); renderPicker(); } }, icon('palette'), 'Свой цвет'),
+      cur ? h('button', { class: 'pillbtn small', type: 'button', onclick: () => set(null) }, 'Сбросить цвет') : null);
+
+    const body = [];
+    if (GP.panel) {
+      const svKnob = h('div', { class: 'gemknob' }), hueKnob = h('div', { class: 'gemknob' });
+      const svEl = h('div', { class: 'gemsv' }, svKnob), hueEl = h('div', { class: 'gemhue' }, hueKnob);
+      const prev = h('div', { class: 'prev' });
+      const hexIn = h('input', { class: 'gemhexin', type: 'text', maxlength: '7', spellcheck: 'false', 'aria-label': 'Цвет в виде #RRGGBB' });
+      // while a knob is dragged the pane only follows it; the colour is kept when the mouse is let go
+      const sync = () => {
+        const hsv = GP.hsv, x = toHex(hsv2rgb(hsv));
+        now.style.setProperty('--gem', x); nowText.textContent = x.toUpperCase();
+        svEl.style.setProperty('--hue', Math.round(hsv[0]));
+        svKnob.style.left = hsv[1] * 100 + '%'; svKnob.style.top = (1 - hsv[2]) * 100 + '%'; svKnob.style.background = x;
+        hueKnob.style.left = hsv[0] / 360 * 100 + '%'; hueKnob.style.background = `hsl(${Math.round(hsv[0])},100%,50%)`;
+        hexIn.value = x; prev.style.setProperty('--gem', x);
       };
-      const dot = (g) => {
-        const on = same(cur, g.rgb), pic = game.length ? gemPic(g) : null;
-        if (!pic) return h('button', { class: 'gemdot' + (on ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, 'aria-label': g.name, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) }, on ? icon('check') : null);
-        return h('button', { class: 'gemcard' + (on ? ' active' : ''), type: 'button', title: `${g.name} · ${toHex(g.rgb).toUpperCase()}`, style: `--gem:${toHex(g.rgb)}`, onclick: () => set(g.rgb) },
-          pic, h('span', { class: 'gemname', text: g.name }), on ? h('span', { class: 'gemcheck' }, icon('check_circle')) : null);
+      const drag = (el, onMove) => {
+        let on = false;
+        const at = (e) => { const r = el.getBoundingClientRect(); onMove(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))); sync(); };
+        el.addEventListener('pointerdown', (e) => { on = true; el.setPointerCapture(e.pointerId); at(e); });
+        el.addEventListener('pointermove', (e) => { if (on) at(e); });
+        const end = () => { if (on) { on = false; set(hsv2rgb(GP.hsv), true); } };
+        el.addEventListener('pointerup', end);
+        el.addEventListener('pointercancel', end);
       };
-      const withArt = game.length && (art || game.some((g) => g.picture));
-      stage = h('div', { class: 'gemstage', style: `--gem:${hex}` }, h('div', { class: 'gembig' }), hexLabel = h('div', { class: 'gemhex', text: (curName && !/^#/.test(curName) ? curName + ' · ' : '') + hex.toUpperCase() }));
-      const kids = [
-        h('div', { class: 'fxmenu-head' }, icon('diamond'), h('span', { class: 'fxlabel', text: 'Цвет гема' }), h('span', { class: 'fxmenu-title', text: arcana }),
-          h('div', { class: 'grow' }), h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closeFxMenu }, icon('close'))),
-        stage,
-        h('div', { class: 'gemgrid' + (withArt ? ' cards' : game.length ? ' named' : '') },
-          ...colors.map(dot),
-          h('button', { class: 'gemdot custom' + (panel ? ' active' : ''), type: 'button', title: 'Свой цвет', onclick: () => { panel = !panel; if (panel) hsv = rgb2hsv(gemOf(gemSet) || def); paint(); } }, icon('palette'))),
-      ];
-      if (panel) {
-        svKnob = h('div', { class: 'gemknob' });
-        hueKnob = h('div', { class: 'gemknob' });
-        svEl = h('div', { class: 'gemsv' }, svKnob);
-        const hueEl = h('div', { class: 'gemhue' }, hueKnob);
-        prev = h('div', { class: 'prev' });
-        hexIn = h('input', { class: 'gemhexin', type: 'text', maxlength: '7', spellcheck: 'false', 'aria-label': 'Цвет в виде #RRGGBB' });
-        const fromText = () => { const m = /^#?([0-9a-f]{6})$/i.exec(hexIn.value.trim()); if (m) set(fromHex('#' + m[1].toLowerCase())); else sync(); };
-        hexIn.addEventListener('change', fromText);
-        hexIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') fromText(); });
-        drag(svEl, (x, y) => { hsv = [hsv[0], x, 1 - y]; });
-        drag(hueEl, (x) => { hsv = [x * 359.99, hsv[1], hsv[2]]; });
-        kids.push(h('div', { class: 'gempanel' }, svEl, hueEl, h('div', { class: 'gemhexrow' }, prev, hexIn)));
-      }
-      kids.push(h('div', { class: 'fxmenu-foot' },
-        cur ? h('button', { class: 'btn', type: 'button', onclick: () => set(null) }, 'Без гема') : null,
-        h('div', { class: 'grow' }),
-        h('button', { class: 'btn primary', type: 'button', onclick: closeFxMenu }, 'Готово')));
-      box.replaceChildren(...kids.filter(Boolean));
-      if (panel) sync();
-    };
-    paint();
-    menu.addEventListener('mousedown', (e) => { if (e.target === menu) closeFxMenu(); });
-    document.body.append(menu);
-    fxMenuEl = menu;
-    document.addEventListener('keydown', fxEsc, true);
+      const fromText = () => { const m = /^#?([0-9a-f]{6})$/i.exec(hexIn.value.trim()); if (m) set(fromHex('#' + m[1].toLowerCase())); else sync(); };
+      hexIn.addEventListener('change', fromText);
+      hexIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') fromText(); });
+      drag(svEl, (x, y) => { GP.hsv = [GP.hsv[0], x, 1 - y]; });
+      drag(hueEl, (x) => { GP.hsv = [x * 359.99, GP.hsv[1], GP.hsv[2]]; });
+      body.push(h('div', { class: 'gempanel' }, svEl, h('div', { class: 'gempanel-side' }, hueEl, h('div', { class: 'gemhexrow' }, prev, hexIn))));
+      sync();
+    }
+    body.push(h('div', { class: 'gemgrid' }, colors.map(card)));
+    return { row, body };
   }
 
   function renderHeroes(c) {
@@ -778,7 +767,7 @@
       const slotCard = (sl) => {
         const worn = sl.picked ? sl.options.find((o) => o.id === sl.picked.itemId) : null;
       const card = h('button', { class: 'card slot' + (worn ? ' picked' : ''), type: 'button', title: sl.slotLabel,
-        onclick: () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; renderContent(); } },
+        onclick: () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; S.pickerTab = worn && gemFor(worn) ? 'gems' : 'items'; renderContent(); } },
         worn ? pic('item', worn.id) : null,
         worn ? null : h('span', { class: 'slotbig' }, icon(sl.icon)),
         h('span', { class: 'slotchip' }, icon(sl.icon), sl.slotLabel),
@@ -810,8 +799,13 @@
     const { fx, style } = slot.picked ? parsePick(slot.picked) : { fx: [...S.fx], style: 0 };
     const picked = slot.picked ? slot.picked.itemId : null;
     const pickedOpt = slot.options.find((o) => o.id === picked);
-    const prevSearch = host.querySelector('input');
+    const prevSearch = host.querySelector('input[type=search]');
     const keep = prevSearch && document.activeElement === prevSearch;
+    // the worn arcana's gems are a tab of this window, next to the items
+    const gemOpt = pickedOpt ? gemFor(pickedOpt) : null;
+    const gems = gemOpt && S.pickerTab === 'gems' ? gemPane(gemOpt) : null;
+    const prevBody = host.querySelector('.picker-body.gems');
+    const gemTop = gems && prevBody ? prevBody.scrollTop : 0;
 
     const grid = h('div', { class: 'grid' });
     const paintGrid = () => {
@@ -861,21 +855,26 @@
         h('div', { class: 'notice-more' },
           h('p', { text: texts.length === 1 ? texts[0] : 'Такие предметы работают с оговорками: наведи курсор на значок, чтобы увидеть, что именно не так с конкретным предметом.' }),
           h('p', { class: 'dim', text: 'Предмет всё равно можно надеть. Если он выглядит не так, как нужно, его можно снять кнопкой «Снять».' })))) : null;
+    const tabBtn = (id, label, n) => h('button', { class: 'pillbtn small' + ((gems ? 'gems' : 'items') === id ? ' active' : ''), type: 'button',
+      onclick: () => { S.pickerTab = id; renderPicker(); } }, label, h('span', { class: 'tabcount', text: String(n) }));
     const win = h('div', { class: 'picker', role: 'dialog', 'aria-modal': 'true' },
       h('div', { class: 'picker-head' },
         icon(slot.icon), h('h2', { text: `${S.heroName || S.hero}: ${slot.slotLabel}` }),
-        h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
+        gemOpt ? h('div', { class: 'picker-tabs' },
+          tabBtn('items', 'Предметы', slot.options.length),
+          tabBtn('gems', 'Самоцветы', gemColorsOf(gemOpt.def).length)) : h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
         h('div', { class: 'grow' }),
-        h('label', { class: 'search' }, icon('search'), input),
+        gems ? null : h('label', { class: 'search' }, icon('search'), input),
         picked ? h('button', { class: 'btn', type: 'button', onclick: () => { closePicker(); heroPick(slot.slot, null, []); } }, 'Снять') : null,
         h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closePicker }, icon('close'))),
-      h('div', { class: 'picker-fx' }, notice, rows),
-      h('div', { class: 'picker-body' }, grid));
+      gems ? h('div', { class: 'picker-fx' }, gems.row) : h('div', { class: 'picker-fx' }, notice, rows),
+      gems ? h('div', { class: 'picker-body gems' }, gems.body) : h('div', { class: 'picker-body' }, grid));
     host.replaceChildren(win);
+    if (gems) win.querySelector('.picker-body').scrollTop = gemTop;
     host.hidden = false;
     host.onclick = (e) => { if (e.target === host) closePicker(); };
-    paintGrid();
-    if (keep) { const i = host.querySelector('input'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    if (!gems) paintGrid();
+    if (keep && !gems) { const i = host.querySelector('input'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
   }
 
   let picking = false;
