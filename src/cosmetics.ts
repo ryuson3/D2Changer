@@ -30,8 +30,7 @@ import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } fr
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
 import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
-import { withResidentModels, type Resident } from './resident-models.ts';
-import { references } from './resource.ts';
+import { withResidentModels, keepsLoaded, type Resident } from './resident-models.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles, entityModel, particleReplacements, heroLoadoutParticles } from './particle-spec.ts';
 import { offeredUnusual, effectNames } from './item-unusual.ts';
@@ -138,7 +137,7 @@ interface Snap { picks: Record<string, string>; items: Record<string, HeroPick>;
  * built by an older one is pending again, so «Применить косметику» is there to press after an
  * update of the app; without it the button stayed off and the game kept the old build's files.
  */
-export const BUILD_REV = 2;
+export const BUILD_REV = 3;
 
 interface Saved {
   /** the BUILD_REV the pak in the game was built by */ rev?: number;
@@ -446,7 +445,7 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
         const r = t.resident;
         if (!r) continue;
         const en = heroPatches.flatMap((p) => p.assets ?? []).find((x) => entryPath(x).toLowerCase() === r.heroModel);
-        try { r.linked = !!en && references(en.data).includes(r.model); } catch { r.linked = false; }
+        try { r.linked = !!en && keepsLoaded(en.data, r.model); } catch { r.linked = false; }
       }
     }
     if (heroPatches.length) {
