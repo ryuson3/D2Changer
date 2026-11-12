@@ -1127,7 +1127,7 @@
         open ? h('button', { class: 'invlink', type: 'button', onclick: open }, 'Открыть героя →') : null)),
       h('div', { class: 'invgrid' }, items));
     if (free.length) {
-      kids.push(section(h('div', { class: 'avatar', text: '✦' }), 'Косметика', plural(free.length, 'предмет', 'предмета', 'предметов'), null,
+      kids.push(section(h('div', { class: 'avatar mark', text: '✦' }), 'Косметика', plural(free.length, 'предмет', 'предмета', 'предметов'), null,
         free.map((o) => { const m = meta(o.slot); return wornItem('free', o, { icon: m.icon, text: m.label }); })));
     }
     const byHero = new Map();
