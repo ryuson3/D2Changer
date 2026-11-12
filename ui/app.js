@@ -284,25 +284,42 @@
     fxMenuEl = menu;
     document.addEventListener('keydown', fxEsc, true);
   }
-  /** A card with the brush on it: `on` when the item carries effects. */
-  function withBrush(card, { on, ids, apply, title, courier = false, gemOpt = null }) {
+  /** A card with the brush on it: `on` when the item carries effects. For couriers; a hero's item has tabs in its window. */
+  function withBrush(card, { on, ids, apply, title, courier = false }) {
     const brush = h('button', {
       class: 'fxbrush' + (on ? ' on' : ''), type: 'button', title: 'Эффекты', 'aria-label': 'Эффекты',
       onclick: (e) => { e.stopPropagation(); openFxMenu(brush, ids, apply, title, courier); },
     }, icon('brush'));
-    const kin = !courier && S.effects.filter((e) => e.kinetic && (e.hero === S.hero || (e.heroes || []).includes(S.hero)));
-    // the Kinetic Gems have a window of their own, opened by the gem on the card
-    const gem = kin && kin.length ? h('button', {
-      class: 'fxbrush fxgem' + (kin.some((e) => (ids || []).includes(e.id)) ? ' on' : ''), type: 'button', title: 'Кинетики', 'aria-label': 'Кинетики',
-      onclick: (e) => { e.stopPropagation(); openFxMenu(gem, ids, apply, title, courier, true); },
-    }, h('img', { src: 'img/kinetic-gem.jpg', alt: '', draggable: 'false' })) : null;
-    // the colour of the arcana's gem: a round button with that colour on it, next to the brush
-    const color = gemOpt ? h('button', {
-      class: 'fxbrush fxcolor' + (gemOf(gemOpt.set) ? ' on' : '') + (gem ? ' shift' : ''), type: 'button', title: 'Цвет гема', 'aria-label': 'Цвет гема',
-      style: `--gem:${toHex(gemOf(gemOpt.set) || gemOpt.def)}`,
-      onclick: (e) => { e.stopPropagation(); S.pickerTab = 'gems'; renderPicker(); },
-    }, icon('diamond')) : null;
-    return h('div', { class: 'cardwrap' }, card, brush, gem, color);
+    return h('div', { class: 'cardwrap' }, card, brush);
+  }
+  /** The effects a hero's item can take: the Kinetic Gems of this hero, or everything else. */
+  const heroFxList = (kinetic) => S.effects.filter((e) => e.id && (!e.hero || S.hero === e.hero || (e.heroes || []).includes(S.hero)) && !!e.kinetic === kinetic);
+  /* The effects of the worn item: a tab of the slot window (and one more for the hero's Kinetic Gems).
+   * `row`: what is on and the search; `body`: a picture tile for each effect. The window is drawn again after a pick. */
+  function fxPane({ fx, apply, kinetic }) {
+    const all = heroFxList(kinetic), list = kinetic ? all : fxSorted(all);
+    const mine = new Set(all.map((e) => e.id));
+    const on = fx.filter((id) => mine.has(id));
+    const grid = h('div', { class: 'fxgrid' });
+    const fill = () => {
+      const want = (S.fxq || '').trim().toLowerCase();
+      const hits = list.filter((e) => !want || e.name.toLowerCase().includes(want));
+      grid.replaceChildren(...(hits.length ? hits.map((e) => {
+        const active = fx.includes(e.id);
+        return h('button', { class: 'fxtile' + (active ? ' active' : ''), type: 'button', title: e.name, 'aria-pressed': active ? 'true' : 'false',
+          onclick: () => apply(active ? fx.filter((x) => x !== e.id) : [...fx, e.id]) },
+          fxThumb(e.id, !!e.kinetic), h('span', { class: 'fxname', text: e.name }), active ? h('span', { class: 'fxcheck' }, icon('check_circle')) : null);
+      }) : [h('div', { class: 'fxempty', text: 'Ничего не найдено' })]));
+    };
+    const input = h('input', { type: 'search', placeholder: kinetic ? 'Найти кинетик…' : 'Найти эффект…', value: S.fxq || '', autocomplete: 'off' });
+    input.addEventListener('input', (e) => { S.fxq = e.target.value; fill(); });
+    fill();
+    const row = h('div', { class: 'fxrow gemrow' },
+      h('span', { class: 'fxlabel', text: kinetic ? 'Кинетики' : 'Эффекты' }),
+      h('span', { class: 'gemnow-text dim', text: on.length ? `Выбрано: ${on.length}` : 'Ничего не выбрано' }),
+      h('div', { class: 'grow' }),
+      on.length ? h('button', { class: 'pillbtn small', type: 'button', onclick: () => apply(fx.filter((id) => !mine.has(id))) }, kinetic ? 'Убрать кинетики' : 'Убрать все эффекты') : null);
+    return { row, body: [grid], search: list.length > 12 ? h('label', { class: 'search' }, icon('search'), input) : null };
   }
 
   function renderContentInner(c) {
@@ -727,7 +744,7 @@
   async function refreshPreview() {
     const d = S.heroData;
     if (!S.hero || !d) return;
-    const key = S.hero + '|' + JSON.stringify(d.slots.map((s) => (s.picked ? [s.slot, s.picked.itemId, s.picked.effects] : 0)));
+    const key = S.hero + '|' + JSON.stringify(d.slots.map((s) => (s.picked ? [s.slot, s.picked.itemId, s.picked.effects] : 0))) + '|' + JSON.stringify(S.gem || 0);
     if (key === PV.key) return;
     PV.key = key;
     const seq = ++PV.seq, hero = S.hero, stage = previewStage();
@@ -767,7 +784,7 @@
       const slotCard = (sl) => {
         const worn = sl.picked ? sl.options.find((o) => o.id === sl.picked.itemId) : null;
       const card = h('button', { class: 'card slot' + (worn ? ' picked' : ''), type: 'button', title: sl.slotLabel,
-        onclick: () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; S.pickerTab = worn && gemFor(worn) ? 'gems' : 'items'; renderContent(); } },
+        onclick: () => { S.heroSlot = sl.slot; S.pq = ''; S.pickerOpen = true; S.fxq = ''; S.pickerTab = worn && gemFor(worn) ? 'gems' : 'items'; renderContent(); } },
         worn ? pic('item', worn.id) : null,
         worn ? null : h('span', { class: 'slotbig' }, icon(sl.icon)),
         h('span', { class: 'slotchip' }, icon(sl.icon), sl.slotLabel),
@@ -801,11 +818,18 @@
     const pickedOpt = slot.options.find((o) => o.id === picked);
     const prevSearch = host.querySelector('input[type=search]');
     const keep = prevSearch && document.activeElement === prevSearch;
-    // the worn arcana's gems are a tab of this window, next to the items
+    // What goes on the worn item is in tabs of this window, next to the items: its effects, the hero's
+    // Kinetic Gems, and the gems of an arcana that takes a gem colour.
     const gemOpt = pickedOpt ? gemFor(pickedOpt) : null;
-    const gems = gemOpt && S.pickerTab === 'gems' ? gemPane(gemOpt) : null;
-    const prevBody = host.querySelector('.picker-body.gems');
-    const gemTop = gems && prevBody ? prevBody.scrollTop : 0;
+    const tabs = [['items', 'Предметы', slot.options.length]];
+    if (pickedOpt && heroFxList(false).length) tabs.push(['fx', 'Эффекты', heroFxList(false).length]);
+    if (pickedOpt && heroFxList(true).length) tabs.push(['kin', 'Кинетики', heroFxList(true).length]);
+    if (gemOpt) tabs.push(['gems', 'Самоцветы', gemColorsOf(gemOpt.def).length]);
+    const tab = tabs.some(([id]) => id === S.pickerTab) ? S.pickerTab : 'items';
+    const applyFx = (next) => heroFx(slot.slot, picked, buildFx(next, style));
+    const pane = tab === 'gems' ? gemPane(gemOpt) : tab === 'fx' || tab === 'kin' ? fxPane({ fx, apply: applyFx, kinetic: tab === 'kin' }) : null;
+    const prevBody = host.querySelector('.picker-body');
+    const paneTop = pane && prevBody && prevBody.dataset.tab === tab ? prevBody.scrollTop : 0;
 
     const grid = h('div', { class: 'grid' });
     const paintGrid = () => {
@@ -826,7 +850,7 @@
           on ? fxTags(slot.picked, d.effects, o) : null,
           h('div', { class: 'name', text: o.name }), h('div', { class: 'sub', text: slot.slotLabel }));
         card.style.setProperty('--tint', tint(o.name));
-        return withBrush(card, { on: on && fx.length > 0, ids: on ? fx : [], title: o.name, apply: (next) => heroFx(slot.slot, o.id, buildFx(next, on ? style : 0)), gemOpt: on ? gemFor(o) : null });
+        return card;
       }) : [h('div', { class: 'empty' }, icon('search_off'), h('h2', { text: 'Ничего не найдено' }))]));
       fillPics([grid]);
     };
@@ -855,26 +879,24 @@
         h('div', { class: 'notice-more' },
           h('p', { text: texts.length === 1 ? texts[0] : 'Такие предметы работают с оговорками: наведи курсор на значок, чтобы увидеть, что именно не так с конкретным предметом.' }),
           h('p', { class: 'dim', text: 'Предмет всё равно можно надеть. Если он выглядит не так, как нужно, его можно снять кнопкой «Снять».' })))) : null;
-    const tabBtn = (id, label, n) => h('button', { class: 'pillbtn small' + ((gems ? 'gems' : 'items') === id ? ' active' : ''), type: 'button',
-      onclick: () => { S.pickerTab = id; renderPicker(); } }, label, h('span', { class: 'tabcount', text: String(n) }));
+    const tabBtn = ([id, label, n]) => h('button', { class: 'pillbtn small' + (tab === id ? ' active' : ''), type: 'button',
+      onclick: () => { S.pickerTab = id; S.fxq = ''; renderPicker(); } }, label, h('span', { class: 'tabcount', text: String(n) }));
     const win = h('div', { class: 'picker', role: 'dialog', 'aria-modal': 'true' },
       h('div', { class: 'picker-head' },
         icon(slot.icon), h('h2', { text: `${S.heroName || S.hero}: ${slot.slotLabel}` }),
-        gemOpt ? h('div', { class: 'picker-tabs' },
-          tabBtn('items', 'Предметы', slot.options.length),
-          tabBtn('gems', 'Самоцветы', gemColorsOf(gemOpt.def).length)) : h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
+        tabs.length > 1 ? h('div', { class: 'picker-tabs' }, tabs.map(tabBtn)) : h('span', { class: 'count', text: plural(slot.options.length, 'предмет', 'предмета', 'предметов') }),
         h('div', { class: 'grow' }),
-        gems ? null : h('label', { class: 'search' }, icon('search'), input),
+        pane ? pane.search || null : h('label', { class: 'search' }, icon('search'), input),
         picked ? h('button', { class: 'btn', type: 'button', onclick: () => { closePicker(); heroPick(slot.slot, null, []); } }, 'Снять') : null,
         h('button', { class: 'iconbtn', type: 'button', 'aria-label': 'Закрыть', onclick: closePicker }, icon('close'))),
-      gems ? h('div', { class: 'picker-fx' }, gems.row) : h('div', { class: 'picker-fx' }, notice, rows),
-      gems ? h('div', { class: 'picker-body gems' }, gems.body) : h('div', { class: 'picker-body' }, grid));
+      pane ? h('div', { class: 'picker-fx' }, pane.row) : h('div', { class: 'picker-fx' }, notice, rows),
+      pane ? h('div', { class: 'picker-body gems', 'data-tab': tab }, pane.body) : h('div', { class: 'picker-body', 'data-tab': tab }, grid));
     host.replaceChildren(win);
-    if (gems) win.querySelector('.picker-body').scrollTop = gemTop;
+    if (pane) win.querySelector('.picker-body').scrollTop = paneTop;
     host.hidden = false;
     host.onclick = (e) => { if (e.target === host) closePicker(); };
-    if (!gems) paintGrid();
-    if (keep && !gems) { const i = host.querySelector('input'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+    if (!pane) paintGrid();
+    if (keep) { const i = host.querySelector('input[type=search]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
   }
 
   let picking = false;

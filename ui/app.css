@@ -166,10 +166,10 @@ button:disabled { opacity: .5; cursor: default; }
 .picker { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(760px, 100%); border-radius: 20px;
   background: var(--picker); border: 1px solid var(--line-strong); box-shadow: 0 20px 60px rgba(0,0,0,.55); overflow: hidden; }
 .picker-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px 14px 20px; border-bottom: 1px solid var(--line); }
-.picker-head h2 { margin: 0; font: 700 18px var(--head); }
+.picker-head h2 { margin: 0; font: 700 18px var(--head); white-space: nowrap; }
 .picker-head > .mi { color: var(--muted); }
 .picker-head .count { color: var(--muted); font-size: 13px; }
-.picker-head .search { width: 240px; }
+.picker-head .search { flex: 0 1 240px; min-width: 130px; width: auto; }
 .picker-fx { padding: 12px 20px 0; }
 .picker-fx .fxrow { margin-bottom: 10px; }
 .picker-body { flex: 1; overflow-y: auto; padding: 8px 20px 22px; }
@@ -276,9 +276,6 @@ button:disabled { opacity: .5; cursor: default; }
 .cardwrap:hover > .fxbrush, .fxbrush:focus-visible, .fxbrush.on { opacity: 1; }
 .fxbrush:hover { background: rgba(40,44,52,.95); }
 .fxbrush.on { background: var(--active); border-color: var(--text); }
-.fxgem { right: 46px; overflow: hidden; }
-.fxgem img { width: 100%; height: 100%; object-fit: cover; }
-.cardwrap:hover > .fxgem, .fxgem:focus-visible, .fxgem.on { opacity: 1; }
 .fxhead-gem { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; }
 /* the one row is the screen, not the content: a long list scrolls inside the window instead of pushing it off the screen */
 .fxoverlay { z-index: 50; padding: 24px; grid-template-rows: minmax(0, 1fr); }
@@ -380,7 +377,8 @@ button:disabled { opacity: .5; cursor: default; }
 /* ---- the effect menu: a picture for each effect ---- */
 .fxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 14px; margin: 0 0 16px; overflow-y: auto; padding: 2px; }
 .fxscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 0 16px; padding: 2px; }
-.fxscroll .fxgrid { overflow: visible; margin: 0; padding: 0; }
+.fxscroll .fxgrid, .picker-body .fxgrid { overflow: visible; margin: 0; padding: 0; }
+.gemrow .dim { color: var(--muted); font-size: 12.5px; }
 .fxempty { grid-column: 1 / -1; color: var(--muted); padding: 10px 2px; }
 .fxsection { margin: 20px 2px 10px; font: 700 12px/1 var(--head); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .fxtile { position: relative; height: 0; padding: 0 0 75%; flex-shrink: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
@@ -472,11 +470,6 @@ button:disabled { opacity: .5; cursor: default; }
 .btn:disabled { opacity: .5; cursor: default; }
 
 /* ---- gem colour: the button on the arcana's card and its window ---- */
-.fxcolor { right: 46px; }
-.fxcolor.shift { right: 82px; }
-.fxbrush.fxcolor, .fxbrush.fxcolor:hover, .fxbrush.fxcolor.on { background: var(--gem); border-color: rgba(255,255,255,.55); }
-.fxcolor .mi { color: #fff; font-size: 17px; filter: drop-shadow(0 0 2px rgba(0,0,0,.7)); }
-.cardwrap:hover > .fxcolor, .fxcolor:focus-visible, .fxcolor.on { opacity: 1; }
 /* the gems tab of the slot window: the colour now, a card for each gem */
 .picker-tabs { display: flex; gap: 6px; }
 .tabcount { margin-left: 2px; padding: 1px 7px; border-radius: 10px; background: rgba(var(--ui-rgb),.14); font-size: 11.5px; }

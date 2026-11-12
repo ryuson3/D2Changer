@@ -770,7 +770,21 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     try { heroFx = heroLoadoutParticles(ix.read(`scripts/npc/heroes/${npc}.txt`)?.toString('latin1') ?? ''); } catch { /* a script with no portrait block */ }
     models[0] = { ...models[0], model: body, particles: [...new Set([...bodyFx, ...heroFx])],
       ...(body !== normalizeAssetPath(stockBody) ? { fallback: { label: models[0].label, model: stockBody } } : {}) };
-    const scene = await buildPreview(ix, models, replacements);
+    // A gem colour chosen for a worn arcana: its particles as the build makes them (gemOverlay), so the preview
+    // shows the colour that goes into the game. With none chosen the files are left as they are, as in the build.
+    const gems = load().gem ?? {};
+    const tints = heroSlots(heroId).slots.flatMap((x) => {
+      const set = x.picked ? gemSetOf(x.slot, x.picked) : null;
+      return set && gems[set] ? [{ color: gems[set], def: RECOLOR_SETS[set] }] : [];
+    });
+    const tint = tints.length ? (p: string, file: Buffer) => {
+      for (const x of tints) {
+        const own = underAny(p, x.def.own);
+        if (own || underAny(p, x.def.shared)) return recolorResource(file, x.color, { gem: x.def.gem, own, bake: true }).file;
+      }
+      return file;
+    } : undefined;
+    const scene = await buildPreview(ix, models, replacements, tint);
     if (persona.length) scene.notes.push(`Персона (${persona.join(', ')}) заменяет героя целиком и в превью пока не показывается`);
     return { ...scene, hero: heroId, name: heroDisplayName(heroId) };
   }
