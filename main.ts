@@ -143,13 +143,30 @@ app.whenReady().then(async () => {
   handle('cos:apply', () => {
     const c = needGame();
     const r = c.apply();
-    return { state: c.state(), failed: r.failed, deployed: r.deployed, gameRunning: isGameRunning() };
+    return { state: c.state(), failed: r.failed, deployed: r.deployed, gameRunning: isGameRunning(), report: r.report };
   });
 
   handle('cos:clearAll', () => {
     const c = needGame();
     const r = c.clearAll();
     return { state: c.state(), failed: r.failed };
+  });
+
+  // presets: named copies of what is worn; putting one on only changes the picks (apply builds them)
+  handle('preset:list', () => ({ presets: needGame().presets() }));
+  handle('preset:save', (name: unknown) => ({ presets: needGame().presetSave(name) }));
+  handle('preset:load', (id: string) => {
+    const c = needGame();
+    const r = c.presetLoad(String(id));
+    return { state: c.state(), failed: r.failed, presets: c.presets() };
+  });
+  handle('preset:delete', (id: string) => ({ presets: needGame().presetDelete(String(id)) }));
+
+  // «Удалить модификации»: our pak, the gameinfo patch and the picks; nothing that is not ours
+  handle('mods:remove', () => {
+    const c = needGame();
+    const r = c.removeAll();
+    return { state: c.state(), removed: r.removed, left: r.left, presets: c.presets(), gameRunning: isGameRunning() };
   });
 
   // emblems: their own list, found by name, and a pick that refuses a slot with nothing to replace
@@ -197,6 +214,7 @@ app.whenReady().then(async () => {
     try { const r = await spellPics.get(Array.isArray(names) ? names : []); return { pictures: r.pictures, reasons: r.reasons }; }
     catch (err) { return { pictures: {}, reasons: { '': String((err as Error)?.message || err) } }; }
   });
+  handle('hero:preview', async (heroId: string) => ({ scene: await needGame().heroPreview(String(heroId)) }));
   handle('hero:reset', (heroId: string) => {
     const c = needGame();
     const r = c.resetHero(String(heroId));
@@ -278,9 +296,11 @@ app.whenReady().then(async () => {
   handle('shell:modsFolder', async () => {
     needGame();
     const dir = path.join(gamePath!, modFolderName(gamePath!));
-    if (!fs.existsSync(dir)) throw new Error('Папка модов не найдена: она появится после выбора первой косметики.');
-    await shell.openPath(dir);
-    return {};
+    // no mod folder yet (nothing applied, or everything removed): show the game folder it will appear in
+    const exists = fs.existsSync(dir);
+    const err = await shell.openPath(exists ? dir : gamePath!);
+    if (err) throw new Error('Не удалось открыть папку: ' + err);
+    return { exists };
   });
 
   handle('shell:play', async () => {

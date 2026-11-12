@@ -81,7 +81,7 @@ export function readKv3(block: Buffer): Kv3Block {
   if ((magic & 0xffffff00) >>> 0 !== MAGIC || version < 1 || version > 5) throw new Error('kv3: not a binary KV3 block');
   let p = 20;
   const method = block.readUInt32LE(p); p += 4;
-  if (method !== LZ4 && method !== NONE && !(method === ZSTD && version >= 5)) throw new Error(`kv3: compression ${method} is not handled`);
+  if (method !== LZ4 && method !== NONE && !(method === ZSTD && version >= 2)) throw new Error(`kv3: compression ${method} is not handled`);
   const h: Record<string, number> = {};
   const field = (name: string, w: 2 | 4) => { h[name] = w === 2 ? block.readUInt16LE(p) : block.readInt32LE(p); h[`@${name}`] = p; p += w; };
   if (version === 1) {
@@ -102,9 +102,20 @@ export function readKv3(block: Buffer): Kv3Block {
     p += src.length;
     return method === NONE ? Buffer.from(src) : method === ZSTD ? zstd(src, size) : lz4Decode(src, size);
   };
-  const buffers = version >= 5
-    ? [unpack(h.unc1, h.cmp1), unpack(h.unc2, h.cmp2)]
-    : [unpack(h.unc, version === 1 ? block.length - headerEnd : h.cmp)];
+  // before version 5 zstd packs the buffer and the blobs as consecutive frames, one compressed size for both (read only)
+  let zstdBlobs: Buffer | null = null;
+  let buffers: Buffer[];
+  if (method === ZSTD && version < 5) {
+    const whole = zstd(block.subarray(p, p + h.cmp));
+    p += h.cmp;
+    if (whole.length !== h.unc + h.blobs) throw new Error('kv3: a zstd buffer of another size');
+    buffers = [whole.subarray(0, h.unc)];
+    zstdBlobs = whole.subarray(h.unc);
+  } else {
+    buffers = version >= 5
+      ? [unpack(h.unc1, h.cmp1), unpack(h.unc2, h.cmp2)]
+      : [unpack(h.unc, version === 1 ? block.length - headerEnd : h.cmp)];
+  }
   const blobsAt = p;
 
   // the lanes of the first buffer: 1-byte, 2-byte, 4-byte (string count first), 8-byte
@@ -153,7 +164,10 @@ export function readKv3(block: Buffer): Kv3Block {
   const blobLengths = table ? lane(types.buf, table.lengthsAt, table.count * 4) : null;
   let blobData: Buffer = Buffer.alloc(0);
   p = blobsAt;
-  if (table) ({ data: blobData, end: p } = method === ZSTD ? readZstdBlobs(block, p, h.cmp - h.cmp1 - h.cmp2, table, h.blobs) : readBlobs(block, p, table, h.blobs));
+  if (table && zstdBlobs) {
+    blobData = readBlobs(Buffer.concat([zstdBlobs, block.subarray(p, p + 4)]), 0, table, h.blobs).data;
+    p += 4;
+  } else if (table) ({ data: blobData, end: p } = method === ZSTD ? readZstdBlobs(block, p, h.cmp - h.cmp1 - h.cmp2, table, h.blobs) : readBlobs(block, p, table, h.blobs));
   const blobsEnd = p;
   const tail = block.subarray(p);
 
@@ -259,6 +273,7 @@ export function readKv3(block: Buffer): Kv3Block {
     arrays,
     blobs,
     encode() {
+      if (method === ZSTD && version < 5) throw new Error('kv3: zstd before version 5 is read only');
       const head = Buffer.from(block.subarray(0, headerEnd));
       let out = buffers;
       let blobPart = block.subarray(blobsAt, blobsEnd);

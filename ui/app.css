@@ -42,7 +42,7 @@ img.brand-ico { width: 24px; height: 24px; display: block; }
 /* ---- layout ---- */
 .body { flex: 1; display: flex; min-height: 0; }
 #rail { width: 212px; flex: none; overflow-y: auto; padding: 12px 8px 16px; background: var(--rail); border-right: 1px solid var(--line); }
-#content { flex: 1; overflow-y: auto; padding: 22px 26px 32px; }
+#content { flex: 1; overflow-y: auto; padding: 22px 26px 32px; position: relative; }
 ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 8px; }
 
 /* ---- rail ---- */
@@ -269,13 +269,17 @@ button:disabled { opacity: .5; cursor: default; }
 /* the brush on a card, and the menu of effects it opens */
 .cardwrap { position: relative; display: flex; min-width: 0; }
 .cardwrap > .card { flex: 1; min-width: 0; }
-.cardwrap > .card .name { padding-right: 34px; }
+.cardwrap > .card .name { padding-right: 70px; }
 .fxbrush { position: absolute; z-index: 4; right: 10px; bottom: 10px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0;
   border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(10,11,14,.78); color: var(--text); opacity: 0; transition: opacity .12s, background .12s; cursor: pointer; }
 .fxbrush .mi { font-size: 18px; }
 .cardwrap:hover > .fxbrush, .fxbrush:focus-visible, .fxbrush.on { opacity: 1; }
 .fxbrush:hover { background: rgba(40,44,52,.95); }
 .fxbrush.on { background: var(--active); border-color: var(--text); }
+.fxgem { right: 46px; overflow: hidden; }
+.fxgem img { width: 100%; height: 100%; object-fit: cover; }
+.cardwrap:hover > .fxgem, .fxgem:focus-visible, .fxgem.on { opacity: 1; }
+.fxhead-gem { width: 22px; height: 22px; border-radius: 6px; object-fit: cover; }
 .fxoverlay { z-index: 50; padding: 24px; }
 .fxmenu { display: flex; flex-direction: column; width: min(860px, 100%); max-height: min(720px, 100%); padding: 18px 20px 16px; border-radius: 20px; background: var(--pop); border: 1px solid var(--line-strong); box-shadow: 0 20px 60px rgba(0,0,0,.6); }
 .fxmenu-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
@@ -371,8 +375,11 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 /* ---- the effect menu: a picture for each effect ---- */
-.fxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin: 0 0 16px; overflow-y: auto; padding: 2px; }
-.fxtile { position: relative; aspect-ratio: 4 / 3; padding: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
+.fxgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 14px; margin: 0 0 16px; overflow-y: auto; padding: 2px; }
+.fxscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 0 16px; padding: 2px; }
+.fxscroll .fxgrid { overflow: visible; margin: 0; padding: 0; }
+.fxsection { margin: 20px 2px 10px; font: 700 12px/1 var(--head); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.fxtile { position: relative; height: 0; padding: 0 0 75%; flex-shrink: 0; border-radius: 12px; overflow: hidden; cursor: pointer;
   border: 2px solid transparent; background: var(--tile); }
 .fxtile:hover { border-color: var(--line-strong); }
 .fxtile.active { border-color: var(--ok); }
@@ -412,3 +419,101 @@ button:disabled { opacity: .5; cursor: default; }
   color: var(--muted); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; max-height: 160px; overflow-y: auto; }
 .updbtn:disabled { cursor: default; animation: none; opacity: .9; }
 .updbtn:disabled:hover { background: rgba(var(--accent-rgb),.16); }
+
+/* ---- diagnostics after apply ---- */
+.report-box { width: min(720px, 92vw); max-height: 86vh; display: flex; flex-direction: column; }
+.report-box .rep-list { flex: 1; min-height: 0; overflow-y: auto; margin: 6px 0 14px; display: flex; flex-direction: column; gap: 10px; }
+.rep-entry { padding: 10px 12px; border-radius: 12px; background: rgba(var(--ui-rgb),.07); border: 1px solid var(--line); }
+.rep-entry.bad { border-color: var(--bad); }
+.rep-title { display: flex; align-items: center; gap: 8px; font: 700 14px var(--head); margin-bottom: 6px; }
+.rep-title .mi { font-size: 18px; color: var(--ok); }
+.rep-entry.bad .rep-title .mi { color: var(--bad); }
+.rep-row { display: grid; grid-template-columns: 140px 1fr; gap: 10px; font-size: 12.5px; line-height: 1.45; padding: 2px 0; }
+.rep-k { color: var(--muted); }
+.rep-v { word-break: break-all; user-select: text; }
+.rep-row.bad .rep-v { color: var(--bad); font-weight: 600; }
+
+/* ---- hero 3D preview ---- */
+.preview-box { width: min(900px, 94vw); }
+.preview-canvas { display: block; width: 100%; height: min(64vh, 640px); border-radius: 14px; background: #171a21 url(img/preview-bg.jpg) center / cover no-repeat; cursor: grab; touch-action: none; }
+.preview-canvas:active { cursor: grabbing; }
+.preview-notes { margin: 0 0 12px; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+
+/* presets (the «Инвентарь» tab) */
+.presets { margin-bottom: 8px; }
+.presetnew { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+.presetnew .sinput { flex: 1; max-width: 360px; }
+.presetlist { display: flex; flex-direction: column; gap: 8px; }
+.preset { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+.preset.auto { border-style: dashed; }
+.preset > .mi { color: var(--peach); }
+.preset .pinfo { flex: 1; min-width: 0; }
+.preset .pname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psub { color: var(--muted); font-size: 12.5px; }
+.btn.icononly { padding: 6px 8px; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* ---- gem colour: the button on the arcana's card and its window ---- */
+.fxcolor { right: 46px; }
+.fxcolor.shift { right: 82px; }
+.fxbrush.fxcolor, .fxbrush.fxcolor:hover, .fxbrush.fxcolor.on { background: var(--gem); border-color: rgba(255,255,255,.55); }
+.fxcolor .mi { color: #fff; font-size: 17px; filter: drop-shadow(0 0 2px rgba(0,0,0,.7)); }
+.cardwrap:hover > .fxcolor, .fxcolor:focus-visible, .fxcolor.on { opacity: 1; }
+.gemmenu { width: min(440px, 100%); }
+.gemstage { display: grid; place-items: center; gap: 22px; padding: 38px 0 20px; margin-bottom: 18px; border-radius: 16px; border: 1px solid var(--line);
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--gem) 30%, transparent), transparent 68%), rgba(255,255,255,.03); transition: background .25s; }
+.gembig { width: 78px; height: 78px; transform: rotate(45deg); border-radius: 18px; border: 2px solid rgba(255,255,255,.4); transition: background .25s, box-shadow .25s;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--gem) 55%, #fff), var(--gem) 55%, color-mix(in srgb, var(--gem) 65%, #000));
+  box-shadow: 0 0 42px color-mix(in srgb, var(--gem) 75%, transparent), inset 0 0 18px rgba(255,255,255,.35); }
+.gemhex { font: 600 12.5px var(--font); letter-spacing: .1em; color: var(--muted); }
+.gemgrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; justify-items: center; margin-bottom: 18px; }
+.gemdot { position: relative; width: 44px; height: 44px; padding: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.18); background: var(--gem); color: #fff;
+  display: grid; place-items: center; cursor: pointer; transition: transform .12s, box-shadow .15s, border-color .15s; }
+.gemdot:hover { transform: scale(1.1); }
+.gemdot.active { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.2), 0 0 16px var(--gem); }
+.gemdot .mi { font-size: 22px; filter: drop-shadow(0 0 3px rgba(0,0,0,.65)); }
+.gemdot.custom { box-sizing: border-box; border: 0; isolation: isolate; overflow: hidden; clip-path: circle(50%);
+  background: conic-gradient(from 0deg, #ff4d4d, #ffd84d, #5be05b, #4dd9e0, #4d6dff, #c84dff, #ff4d4d); box-shadow: inset 0 0 0 2px rgba(255,255,255,.22); }
+.gemdot.custom:hover { transform: scale(1.1); }
+.gemdot.custom::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 0 2px rgba(255,255,255,.28); pointer-events: none; }
+.gemdot.custom input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+
+/* the picker for any colour, in the gem window */
+.gempanel { display: grid; gap: 14px; margin: 0 0 18px; }
+.gemsv { position: relative; height: 150px; border-radius: 12px; overflow: hidden; cursor: crosshair; touch-action: none; background: hsl(var(--hue, 0), 100%, 50%); }
+.gemsv::before, .gemsv::after { content: ''; position: absolute; inset: 0; pointer-events: none; }
+.gemsv::before { background: linear-gradient(90deg, #fff, rgba(255,255,255,0)); }
+.gemsv::after { background: linear-gradient(0deg, #000, rgba(0,0,0,0)); }
+.gemhue { position: relative; height: 14px; border-radius: 8px; cursor: pointer; touch-action: none; background: linear-gradient(90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.gemknob { position: absolute; z-index: 2; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; border: 2px solid #fff; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.5); }
+.gemhue .gemknob { top: 50%; }
+.gemhexrow { display: flex; align-items: center; gap: 10px; }
+.gemhexrow .prev { flex: none; width: 38px; height: 38px; border-radius: 10px; background: var(--gem); border: 1px solid rgba(255,255,255,.2); }
+.gemhexin { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(var(--ui-rgb),.07);
+  color: var(--text); font: 600 14px var(--font); letter-spacing: .08em; text-transform: uppercase; outline: 0; }
+.gemhexin:focus { border-color: var(--peach); }
+
+/* the ⚠ explanation in the item window: one line until it is opened */
+.notice-body { flex: 1; min-width: 0; }
+.notice-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.notice-head .mi { margin-left: auto; font-size: 20px; color: var(--muted); transition: transform .15s; }
+.notice:not(.folded) .notice-head .mi { transform: rotate(180deg); }
+.notice.folded { align-items: center; padding-top: 7px; padding-bottom: 7px; }
+.notice.folded > .mi { font-size: 20px; margin-top: 0; }
+.notice.folded .notice-more { display: none; }
+
+/* the logo: a click changes the colours */
+.brand.clickable { -webkit-app-region: no-drag; cursor: pointer; padding: 3px 8px 3px 4px; margin-left: -4px; border-radius: 20px; transition: background .15s; }
+.brand.clickable:hover { background: rgba(var(--ui-rgb),.1); }
+.brand.clickable:focus-visible { outline: 2px solid var(--peach); outline-offset: 1px; }
+.brand.spin img.brand-ico { animation: brandSpin .5s cubic-bezier(.3,.8,.3,1); }
+@keyframes brandSpin { from { transform: rotate(-200deg) scale(.7); } to { transform: none; } }
+
+/* the groups of the left list */
+.rail-group { display: flex; align-items: center; gap: 4px; width: 100%; margin: 14px 0 6px; padding: 0 10px 0 6px; border: 0; background: none; text-align: left; cursor: pointer;
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; color: var(--faint); text-transform: uppercase; }
+.rail-group:first-child { margin-top: 4px; }
+.rail-group:hover { color: var(--muted); }
+.rail-group .mi { font-size: 18px; transition: transform .15s; }
+.rail-group.shut .mi { transform: rotate(-90deg); }

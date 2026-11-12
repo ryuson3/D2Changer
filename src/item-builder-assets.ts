@@ -39,6 +39,16 @@ export function normalizeAssetPath(p: unknown): string {
   return String(p || '').toLowerCase().replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
+/**
+ * The particles every unit and every item of the game plays, not a hero's own (Blade Mail, Radiance, the deny
+ * message, an illusion's look and its birth and death, an ordinary attack). An item swaps one for its own while
+ * its owner wears it, and the game does that for the owner alone. A swap made by copying a file onto the plain
+ * path is for everybody who plays it, so these are left to the item's own entries in items_game and never
+ * copied: Spectre's arcana made every Blade Mail in the match look like hers.
+ */
+const SHARED_PARTICLES = /^particles\/(?:items\d*_fx|msg_fx|generic_gameplay|status_fx|base_attacks|generic_hero_status)\//;
+export const isSharedParticle = (p: unknown): boolean => SHARED_PARTICLES.test(normalizeAssetPath(p));
+
 function compiledAssetPath(p: unknown): string {
   const clean = normalizeAssetPath(p);
   return clean.endsWith('_c') ? clean : `${clean}_c`;
@@ -113,7 +123,8 @@ export function itemAssets(text: string, visuals: string, heroes: string[]): Ite
         .map((f) => ({ from: f.get('modifier')!, to: f.get('asset')! })),
       ...typed('hero_model_change', 'asset', 'modifier').filter((f) => FORM.test(normalizeAssetPath(f.get('asset'))))
         .map((f) => ({ from: f.get('modifier')!, to: f.get('asset')! })),
-      ...typed('particle', 'asset', 'modifier').map((f) => ({ from: f.get('modifier')!, to: f.get('asset')! })),
+      ...typed('particle', 'asset', 'modifier').filter((f) => !isSharedParticle(f.get('asset')))
+        .map((f) => ({ from: f.get('modifier')!, to: f.get('asset')! })),
       ...pictures,
     ],
     sounds: typed('sound', 'asset', 'modifier').map((f) => ({ sound: f.get('asset')!, as: f.get('modifier')! })),

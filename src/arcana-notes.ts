@@ -1,11 +1,12 @@
 /* What an arcana does in the game once the item builder puts it on, as somebody played it.
  *
  * The builder offers every arcana, and most of them work. Some do not quite: an arcana carries its
- * own animations, and a few of them need things only the real item turns on, so Razor walks facing
- * backwards and Earthshaker can sink into the ground. An arcana that is not known to work carries a
- * note to the slot window, so nobody picks Razor's and goes looking for what they did wrong.
+ * own animations, and a few of them need things only the real item turns on, so Spectre's third ability shows
+ * the wrong effects. An arcana that is not known to work carries a
+ * note to the slot window, so nobody picks Spectre's and goes looking for what they did wrong.
  *
- * The table is J0nathan550's pass through every arcana on 2026-10-15 (pull request #275). A hero
+ * The table is J0nathan550's pass through every arcana on 2026-10-15 (pull request #275). An arcana was taken off
+ * it once it played right in the game (Razor's, and the rest but Spectre's), and joined the ones that work. A hero
  * here by its id as items_game names it (npc_dota_hero_<id>). An arcana of a hero who is in neither
  * list, one Valve adds later, is not checked yet and says so. Io was offered for the first time in
  * 2.12.0 with all its items marked as not checked; J0nathan550 played them on 2026-10-15 and its
@@ -25,23 +26,14 @@ export interface ItemNote { status: ItemNoteStatus; text: string }
 
 /** Arcanas played and found wanting, by hero. */
 export const ARCANA_NOTES: Readonly<Record<string, { status: Exclude<ItemNoteStatus, 'untested'>; note: string }>> = {
-  crystal_maiden: { status: 'issues', note: 'Анимации работают с багами' },
-  earthshaker: { status: 'issues', note: 'Работает с оговорками: во втором стиле глаза красно-синие, а второй навык с Aghanim\'s зависит от предметов, отданных тотемом, и может провалить героя под землю' },
-  juggernaut: { status: 'issues', note: 'Нет второй анимации бега: после покупки сапог всегда бежит с мечом в руке' },
-  legion_commander: { status: 'issues', note: 'Выглядит странно, но работает' },
-  razor: { status: 'issues', note: 'Ходит развёрнутым на 180°; на втором навыке поворачивается верно, но при атаке крутится не в ту сторону' },
-  rubick: { status: 'issues', note: 'Не все способности подменяются верно, анимации работают' },
-  skywrath_mage: { status: 'issues', note: 'Почти без ошибок, но в покое может не махать крыльями' },
-  spectre: { status: 'issues', note: 'Первый стиль работает. Во втором неверные клинки, не все материалы и не те эффекты атаки; анимации верные' },
-  terrorblade: { status: 'issues', note: 'Обычная форма выходит синей, а не красной, и одна анимация неверная' },
-  windrunner: { status: 'issues', note: 'Сломан только ультимейт' },
-  pudge: { status: 'broken', note: 'Сломана: на текстуре спины артефакты' },
+  spectre: { status: 'issues', note: 'Первый стиль работает. Во втором неверные клинки, не все материалы и не те эффекты атаки; анимации верные. Эффекты третьей способности сломаны' },
 };
 
 /** Arcanas played and found to work, by hero. */
 export const ARCANAS_THAT_WORK: ReadonlySet<string> = new Set([
   'drow_ranger', 'faceless_void', 'lina', 'monkey_king', 'ogre_magi', 'phantom_assassin', 'queenofpain', 'nevermore',
-  'techies', 'tidehunter', 'vengefulspirit', 'skeleton_king', 'zuus', 'wisp',
+  'techies', 'tidehunter', 'vengefulspirit', 'skeleton_king', 'zuus', 'wisp', 'razor',
+  'crystal_maiden', 'earthshaker', 'juggernaut', 'legion_commander', 'rubick', 'skywrath_mage', 'terrorblade', 'windrunner', 'pudge',
 ]);
 
 /** Heroes none of whose items have been played through the builder yet (none now: Io was the

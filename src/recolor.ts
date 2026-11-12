@@ -44,6 +44,14 @@ export const RECOLOR_SETS: Record<string, RecolorSet> = {
     shared: ['particles/units/heroes/hero_terrorblade/', 'particles/models/heroes/terrorblade/', 'particles/econ/items/terrorblade/'],
     materials: ['materials/models/heroes/terrorblade/', 'materials/models/items/terrorblade/'],
   },
+  'techies-arcana': {
+    name: 'Swine of the Sunken Galley',
+    // Prismatic: Explosive Burst, the gem the arcana comes with (#FFAF00)
+    gem: [255, 175, 0],
+    own: ['particles/econ/items/techies/techies_arcana/'],
+    shared: ['particles/units/heroes/hero_techies/', 'particles/models/heroes/techies/', 'particles/econ/items/techies/'],
+    materials: ['materials/models/heroes/techies/', 'materials/models/items/techies/'],
+  },
 };
 
 /** A member name that holds a colour. Not m_bSaturateColorPreAlphaBlend: that one is a switch. */

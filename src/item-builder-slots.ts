@@ -21,7 +21,7 @@ import { itemNote, untilReconnect, type ItemNote } from './arcana-notes.ts';
 export interface ItemSlot {
   slot: string; kind: 'item-effect'; base: string; targetId: string; equipSlot: string; heroIds: string[];
   heroLabel: string; slotLabel: string; label: string; icon: string;
-  /** the slot's stock item has no model of its own: a pick for it borrows another stock item's path (borrowableStock) */
+  /** the slot's stock item has no model of its own */
   bare?: boolean;
   /** `styles`: the name token of each style, for an item with more than one (src/item-builder-styles.ts);
    *  `note`: what is known to go wrong with it in the game, or that nobody has checked (src/arcana-notes.ts) */
@@ -74,7 +74,7 @@ const ITEM_SLOT_ORDER = [
   'ability4', 'ability_ultimate', 'summon', 'voice', 'shapeshift', 'misc',
 ];
 
-function canonicalHeroId(hero: unknown): string {
+export function canonicalHeroId(hero: unknown): string {
   const clean = String(hero || '').toLowerCase().replace(/^npc_dota_hero_/, '');
   return clean === 'io' ? 'wisp' : clean;
 }
@@ -135,36 +135,6 @@ function itemSlotIcon(slot: string): string {
   } as Record<string, string>)[canonicalItemSlot(slot)] || 'checkroom';
 }
 
-/* A stock item that has no model of its own leaves a pick nowhere to go: the game only loads, in a match,
- * the models its server's table names, which are the stock paths. So the pick borrows the path of
- * another stock item of the same hero that has a model: the paid model is put under it, and the game
- * loads it as it loads that stock item's. The other stock item then draws the paid model too, which is
- * the price: its own look is gone while the pick is worn. Parts that would be missed at once (weapon,
- * hero model, mounts...) are never borrowed, and the first free of these is taken. */
-const BORROW_NEVER = new Set(['weapon', 'offhand', 'offhand_weapon', 'shield', 'hero_base', 'armor', 'mount', 'costume', 'summon', 'voice', 'shapeshift', 'ambient', 'ambient_effects', 'wings']);
-const BORROW_ORDER = ['misc', 'back', 'tail', 'belt', 'neck', 'arms', 'arm', 'gloves', 'shoulder', 'shoulders', 'legs', 'head', 'body_head'];
-
-/**
- * The stock item whose model path a pick for a slot with no stock model can go under.
- * @param avoid  stock items already taken: another pick of the hero's, or a path another pick borrowed
- * @param heroesOf  the heroes of an item, when the caller keeps them (a walk of the block otherwise)
- */
-export function borrowableStock(text: string, targetId: string, avoid: Set<string> = new Set(), heroesOf?: (i: SchemaItem) => string[]): { id: string; model: string; slot: string } | null {
-  const items = listItems(text);
-  const target = items.find((i) => i.id === targetId);
-  if (!target) return null;
-  const heroes = (heroesOf ?? ((i) => itemHeroes(text, i)))(target).join(',');
-  const found = items
-    .filter((i) => i.prefab === 'default_item' && i.id !== target.id && i.model && !avoid.has(i.id) && !isPersonaItem(i))
-    .map((i) => ({ item: i, slot: canonicalItemSlot(inferredItemSlot(i)) }))
-    .filter((x) => x.slot && !BORROW_NEVER.has(x.slot) && (heroesOf ?? ((i) => itemHeroes(text, i)))(x.item).join(',') === heroes)
-    .sort((a, b) => {
-      const ra = BORROW_ORDER.indexOf(a.slot), rb = BORROW_ORDER.indexOf(b.slot);
-      return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb) || Number(a.item.id) - Number(b.item.id);
-    })[0];
-  return found ? { id: found.item.id, model: found.item.model, slot: found.slot } : null;
-}
-
 /** Hero item slots built from real default_item entries, with one donor list per hero part. */
 export function itemSlots(text: string): ItemSlot[] {
   return drain(itemSlotsSteps(text));
@@ -184,7 +154,6 @@ export function* itemSlotsSteps(text: string): Generator<typeof PAUSE, ItemSlot[
   const matchSlots = new Map<string, string[]>();
   // the stock items with no model of their own: a pick for their slot has no path to go under
   const bare = new Set<string>();
-  const borrowed = new Map<string, ReturnType<typeof borrowableStock>>();
   for (const item of items) {
     if (++n % 2000 === 0) yield PAUSE;
     const equipSlot = canonicalItemSlot(inferredItemSlot(item));
@@ -230,14 +199,10 @@ export function* itemSlotsSteps(text: string): Generator<typeof PAUSE, ItemSlot[
     const block = text.slice(item.start, item.end);
     const styles = block.includes('"styles"') ? styleTokens(visualsOf(text, item)) : [];
     const noted = itemNote(heroIds, block, item.id);
-    let note: ItemNote | undefined | null = noted && { status: noted.status, text: t(noted.note) };
+    let note: ItemNote | undefined | null = noted && { status: noted.status, text: noted.note };
     if (item.model && bare.has(target.base)) {
-      // borrowing another stock item's path keeps the pick through a reconnect; with none to borrow it only lasts until one
-      if (!borrowed.has(target.base)) borrowed.set(target.base, borrowableStock(text, target.base, new Set(), heroesOf));
-      const lend = borrowed.get(target.base);
-      note = lend
-        ? { status: noted?.status ?? 'issues', text: `${noted ? t(noted.note) + ' ' : ''}${t('Займёт путь стандартного предмета другого слота ({0}): его вид пропадёт, зато после переподключения этот предмет останется', slotDisplayLabel(lend.slot))}` }
-        : untilReconnect(noted, t);
+      // no stock model to go under: the pick only lasts until a reconnect
+      note = untilReconnect(noted, (ru) => ru);
     }
     target.options.push({
       id: item.id, name: toUtf8(item.name),
