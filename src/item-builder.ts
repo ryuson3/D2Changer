@@ -72,6 +72,14 @@ function itemEffectById(effectId: unknown, text?: string): ItemEffect | null {
   return ITEM_EFFECTS.find((e) => e.id === want) || (text && want.startsWith('kinetic-') ? kineticById(text, want) : null);
 }
 
+/** The particle systems the effects of a pick create on the item (for the preview); an id nobody offers adds none. */
+export function effectParticles(effectIds: string | string[] | null | undefined, text?: string): string[] {
+  return effectKey(effectIds).split(',').filter((id) => id && !/^style-\d+$/.test(id)).flatMap((id) => {
+    const effect = itemEffectById(id, text);
+    return effect ? effectParts(effect).filter((p) => p.type === 'particle_create' && /\.vpcf$/i.test(p.modifier)).map((p) => p.modifier.toLowerCase()) : [];
+  });
+}
+
 /**
  * The effects of one pick as one string: ids in the order ITEM_EFFECTS lists them, each once,
  * comma separated, '' for none. A pick carries several (the window says "you can pick several"),

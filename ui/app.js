@@ -683,16 +683,26 @@
     return h('div', { class: 'fxtags', title: 'Добавлено: ' + all.map((e) => e.name).concat(style > 0 ? [`Стиль ${style + 1}`] : []).join(', ') }, icon('auto_awesome'), names.map((n) => h('span', { text: n })));
   }
 
-  // «Preview»: the hero with what is picked now, in 3D (src/preview.ts builds it, ui/preview.js shows it).
-  let previewing = false;
-  async function openPreview() {
-    if (previewing || !S.hero) return;
-    previewing = true;
-    toast('Собираю превью…');
-    try {
-      const r = await call(api.heroPreview, S.hero);
-      if (r && r.scene) window.HeroPreview.open({ scene: r.scene, name: S.heroName || S.hero });
-    } finally { previewing = false; }
+  // The hero preview: a panel that stays on the hero screen (ui/preview.js) and is built again by
+  // src/preview.ts whenever what the hero wears changes. One panel for the whole session: the hero
+  // screen redraws often, and the panel (with its WebGL context) is moved into each new layout.
+  const PV = { stage: null, key: '', seq: 0 };
+  function previewStage() {
+    if (!PV.stage) PV.stage = window.HeroPreview.createStage();
+    return PV.stage;
+  }
+  async function refreshPreview() {
+    const d = S.heroData;
+    if (!S.hero || !d) return;
+    const key = S.hero + '|' + JSON.stringify(d.slots.map((s) => (s.picked ? [s.slot, s.picked.itemId, s.picked.effects] : 0)));
+    if (key === PV.key) return;
+    PV.key = key;
+    const seq = ++PV.seq, hero = S.hero, stage = previewStage();
+    stage.status('Собираю превью…');
+    const r = await call(api.heroPreview, hero);
+    if (seq !== PV.seq) return;            // a newer pick asked again meanwhile
+    if (r && r.scene) stage.show({ scene: r.scene, hero });
+    else { stage.status('Превью не собралось'); PV.key = ''; }
   }
 
 
@@ -705,11 +715,10 @@
     if (!d) { c.replaceChildren(h('div', { class: 'head' }, back, h('h1', { text: name })), h('div', { class: 'empty' }, icon('hourglass_top'), h('h2', { text: 'Читаю предметы героя…' }))); renderPicker(); return; }
     const any = d.slots.some((x) => x.picked);
     const head = h('div', { class: 'head' }, back, h('h1', { text: name }), h('span', { class: 'count', text: plural(d.slots.length, 'слот', 'слота', 'слотов') }), h('div', { class: 'line' }),
-      h('button', { class: 'btn', type: 'button', onclick: openPreview }, icon('view_in_ar'), 'Preview'),
       d.sets.length ? h('button', { class: 'btn', type: 'button', onclick: () => { S.setsOpen = !S.setsOpen; renderContent(); } }, icon('inventory_2'), `Наборы · ${d.sets.length}`) : null,
       any ? h('button', { class: 'btn', type: 'button', onclick: async () => { if (picking) return; picking = true; try { await heroDone(await call(api.heroReset, S.hero), 'Герой сброшен. Нажми «Применить косметику».'); } finally { picking = false; } } }, 'Сбросить героя') : null);
 
-    const parts = [head];
+    const parts = [];
     if (S.setsOpen && d.sets.length) {
       parts.push(h('div', { class: 'grid sets' }, d.sets.map((set) => {
         const card = h('button', { class: 'card', type: 'button', title: set.pieces.map((p) => p.name + (p.fits ? '' : ` (${p.reason})`)).join('\n'),
@@ -739,9 +748,11 @@
       parts.push(h('div', { class: 'grid slots' }, d.slots.map(slotCard)));
     }
     const top = c.scrollTop;
-    c.replaceChildren(...parts);
+    // left: the hero as he will look, always there; right: his slots (and sets) to choose from
+    c.replaceChildren(head, h('div', { class: 'hero-split' }, previewStage().el, h('div', { class: 'hero-side' }, parts)));
     c.scrollTop = top;
     renderPicker();
+    refreshPreview();
   }
 
   const closePicker = () => { S.pickerOpen = false; renderPicker(); };

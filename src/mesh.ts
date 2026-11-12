@@ -277,6 +277,33 @@ export function readModelBones(file: Buffer, resolve?: Resolve): Map<string, num
   return out;
 }
 
+/** An attachment point (attach_hitloc, attach_weapon): the bones it follows and where it sits from each, in that bone's space. */
+export interface ModelAttachment { name: string; bones: string[]; offsets: number[][]; weights: number[]; root: boolean[] }
+
+/** A model's attachment points, out of its meshes' data (where the game keeps them), the first of each name. */
+export function readModelAttachments(file: Buffer, resolve?: Resolve): ModelAttachment[] {
+  const out: ModelAttachment[] = [];
+  let sources: MeshSource[] = [];
+  try { sources = meshSources(file, 1, [], resolve); } catch { return out; }
+  for (const src of sources) {
+    let list: any[] = [];
+    try { const kv = readKv3(src.kv); list = kv3Plain(kv, kv.root).m_attachments ?? []; } catch { continue; }
+    for (const a of Array.isArray(list) ? list : []) {
+      const v = a?.value ?? a;
+      const name = String(a?.key || v?.m_name || '').toLowerCase();
+      const n = Math.max(1, Number(v?.m_nInfluences ?? 1));
+      const bones = (Array.isArray(v?.m_influenceNames) ? v.m_influenceNames : []).slice(0, n).map((b: unknown) => String(b).toLowerCase());
+      if (!name || !bones.length || out.some((x) => x.name === name)) continue;
+      out.push({
+        name, bones,
+        offsets: bones.map((_: string, i: number) => (Array.isArray(v.m_vInfluenceOffsets?.[i]) ? v.m_vInfluenceOffsets[i] : [0, 0, 0])),
+        weights: bones.map((_: string, i: number) => Number(v.m_influenceWeights?.[i] ?? (i === 0 ? 1 : 0))),
+        root: bones.map((_: string, i: number) => !!v.m_bInfluenceRootTransform?.[i]),
+      });
+    }
+  }
+  return out;
+}
 
 /** The model's DATA block as plain values (kept per file: the meshes, the skeleton and the remap table all read it). */
 const dataCache = new WeakMap<Buffer, any>();

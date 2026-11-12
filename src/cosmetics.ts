@@ -30,6 +30,7 @@ import { heroDisplayName, entryAt, entryPath, sharedVpkIndex, type VpkEntry } fr
 import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb } from './recolor.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
+import { itemParticles } from './particle-spec.ts';
 import { modFolderName, ensureModFolder } from './modfolder.ts';
 import { gemTitles } from './item-kinetics.ts';
 import { findItem, readGameSchema } from './schema-items.ts';
@@ -705,6 +706,9 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     const picked = new Map(heroSlots(heroId).slots.filter((x) => x.picked).map((x) => [x.targetId, x]));
     const nameOf = (i: { name: string }, slotLabel: string, id?: string, slot?: HeroSlotInfo) =>
       `${slotLabel} · ${slot?.options.find((o) => o.id === id)?.name ?? schema.toUtf8(i.name)}`;
+    // what the item brings in its chosen style, and the effects picked on top of it
+    const particlesOf = (i: { start: number; end: number }, effects?: string) =>
+      [...itemParticles(base.text.slice(i.start, i.end), itemBuilder.styleOfKey(itemBuilder.effectKey(effects))), ...itemBuilder.effectParticles(effects, base.text)];
     for (const st of all.filter((i) => i.prefab === 'default_item' && itemBuilder.heroesOfItem(base.text, i).includes(`npc_dota_hero_${heroId}`))) {
       const slot = picked.get(st.id);
       picked.delete(st.id);
@@ -715,14 +719,14 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       const worn = slot?.picked ? byId.get(String(slot.picked.itemId)) : undefined;
       const item = worn ?? st;
       const stockLabel = `${slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? ''} · ${schema.toUtf8(st.name)}`;
-      if (item.model) models.push({ label: nameOf(item, slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? '', slot?.picked?.itemId, slot), model: item.model, fallback: worn && st.model ? { label: stockLabel, model: st.model } : undefined });
+      if (item.model) models.push({ label: nameOf(item, slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? '', slot?.picked?.itemId, slot), model: item.model, fallback: worn && st.model ? { label: stockLabel, model: st.model } : undefined, particles: particlesOf(item, slot?.picked?.effects) });
     }
     const persona: string[] = [];
     for (const slot of picked.values()) {          // a pick in a slot that has no stock item of its own
       // a persona is a different model of the whole hero, with its own items: drawn next to the hero it would stand inside him
       if (/persona/i.test(`${slot.equipSlot} ${slot.slotLabel}`)) { persona.push(slot.slotLabel); continue; }
       const worn = byId.get(String(slot.picked!.itemId));
-      if (worn?.model) models.push({ label: nameOf(worn, slot.slotLabel, slot.picked!.itemId, slot), model: worn.model });
+      if (worn?.model) models.push({ label: nameOf(worn, slot.slotLabel, slot.picked!.itemId, slot), model: worn.model, particles: particlesOf(worn, slot.picked!.effects) });
     }
     const scene = await buildPreview(ix, models);
     if (persona.length) scene.notes.push(`Персона (${persona.join(', ')}) заменяет героя целиком и в превью пока не показывается`);

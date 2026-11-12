@@ -433,11 +433,25 @@ button:disabled { opacity: .5; cursor: default; }
 .rep-v { word-break: break-all; user-select: text; }
 .rep-row.bad .rep-v { color: var(--bad); font-weight: 600; }
 
-/* ---- hero 3D preview ---- */
-.preview-box { width: min(900px, 94vw); }
+/* ---- hero 3D preview: a panel on the left of the hero screen ---- */
+.hero-split { display: grid; grid-template-columns: minmax(320px, 40%) minmax(0, 1fr); gap: 18px; align-items: start; }
+.hero-side { min-width: 0; }
+.hero-side .grid.slots { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.pv-stage { position: sticky; top: 0; height: max(380px, calc(100vh - 230px)); border-radius: 16px; overflow: hidden;
+  border: 1px solid var(--line); background: #171a21 url(img/preview-bg.jpg) center / cover no-repeat; }
+.pv-stage .preview-canvas { width: 100%; height: 100%; border-radius: 0; background: none; }
+.pv-status { position: absolute; top: 12px; left: 12px; padding: 5px 12px; border-radius: 20px; background: rgba(10,11,14,.72); font-size: 12.5px; pointer-events: none; }
+.pv-hint { position: absolute; left: 12px; bottom: 10px; font-size: 11.5px; color: var(--faint); text-shadow: 0 1px 4px rgba(0,0,0,.9); pointer-events: none; }
+.pv-notes { position: absolute; top: 10px; right: 10px; max-width: 70%; max-height: 60%; overflow: auto; padding: 6px 12px; border-radius: 12px; background: rgba(10,11,14,.78); font-size: 12px; }
+.pv-notes summary { cursor: pointer; color: var(--muted); }
+.pv-notes ul { margin: 8px 0 4px; padding-left: 16px; line-height: 1.45; color: var(--muted); }
+.pv-error { padding: 20px; color: var(--muted); }
+@media (max-width: 900px) {
+  .hero-split { grid-template-columns: 1fr; }
+  .pv-stage { position: relative; height: 420px; }
+}
 .preview-canvas { display: block; width: 100%; height: min(64vh, 640px); border-radius: 14px; background: #171a21 url(img/preview-bg.jpg) center / cover no-repeat; cursor: grab; touch-action: none; }
 .preview-canvas:active { cursor: grabbing; }
-.preview-notes { margin: 0 0 12px; padding-left: 18px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 
 /* presets (the «Инвентарь» tab) */
 .presets { margin-bottom: 8px; }
