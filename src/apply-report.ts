@@ -17,6 +17,8 @@ export interface PickTrace {
   borrowed: { id: string; name: string | null; model: string } | null;
   /** the paths (lower case, compiled) the pick's own files go under */ paths: string[];
   /** the pick could not be built at all */ error?: string;
+  /** a pick with no stock path for its model: the hero's model that lists it, and whether the pak's copy does (src/resident-models.ts) */
+  resident?: { heroModel: string; model: string; linked: boolean };
 }
 
 export type FileState = 'ok' | 'same' | 'dropped' | 'absent';
@@ -31,6 +33,7 @@ export interface ReportEntry {
   blockBy?: string; error?: string;
   /** two picks wrote different blocks for the same stock item */ conflicts: string[];
   files: ReportFile[];
+  resident?: PickTrace['resident'] & { by?: string };
   problem: boolean;
 }
 export interface ApplyReport { entries: ReportEntry[]; text: string }
@@ -63,7 +66,9 @@ export function buildApplyReport(
       if (d) e.files.push({ path: p, state: d.same ? 'same' : 'dropped', by: d.by });
       else e.files.push({ path: p, state: 'absent', by: res.owners[p] });
     }
-    e.problem = e.block !== 'ok' || e.conflicts.length > 0 || e.files.some((f) => f.state === 'dropped' || f.state === 'absent');
+    // the hero's model is one file for all his picks: whichever pick the pak took it from, it has to list this model
+    if (t.resident) e.resident = { ...t.resident, by: res.owners[t.resident.heroModel] };
+    e.problem = e.block !== 'ok' || e.conflicts.length > 0 || e.files.some((f) => f.state === 'dropped' || f.state === 'absent') || (!!e.resident && (!e.resident.linked || !e.resident.by));
     return e;
   });
   return { entries, text: formatReport(entries, label, stamp) };
@@ -86,6 +91,10 @@ function formatReport(entries: ReportEntry[], label: (s: string) => string, stam
         : f.state === 'dropped' ? `ОТБРОШЕН: путь занят файлом «${label(f.by ?? '')}», а он другой`
         : `ОТСУТСТВУЕТ в паке${f.by ? ` (путь занят «${label(f.by)}»)` : ''}`;
       lines.push(`  файл ${f.path}: ${state}`);
+    }
+    if (e.resident) {
+      lines.push(`  своей стоковой модели у слота нет: ${e.resident.model} держится загруженной через ${e.resident.heroModel}`);
+      lines.push(`    ссылка в модели героя: ${e.resident.linked ? 'записана' : 'НЕ ЗАПИСАНА'}; модель героя в паке: ${e.resident.by ? `да, от «${label(e.resident.by)}»` : 'НЕТ'}`);
     }
     lines.push(`  блок в items_game: ${e.block === 'ok' ? 'применён'
       : e.block === 'missing' ? 'НЕ ПРИМЕНЁН: стокового предмета нет в таблице игры'

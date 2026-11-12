@@ -45,4 +45,21 @@ const dataOf = (assets: VpkEntry[] | null | undefined, p: string) => assets?.fin
   assert.ok(!patches[0].assets?.length);
 }
 
+
+// a pick with no stock path for its model: the report says whether the pak's hero model lists it
+{
+  const { buildApplyReport } = await import('../src/apply-report.ts');
+  const heroModel = 'models/heroes/bane/bane.vmdl_c';
+  const trace = (linked: boolean) => ({
+    source: 'arms', hero: 'bane', heroName: 'Bane', slotLabel: 'Arms', itemId: '28434', name: 'Arms', stockId: '614', stockName: null, borrowed: null, paths: [],
+    resident: { heroModel, model: 'models/items/bane/arms.vmdl', linked },
+  });
+  const res = { applied: [{ id: '614', source: 'arms' }], missing: [], conflicts: [], owners: { [heroModel]: 'head' }, dropped: [] } as never;
+  const ok = buildApplyReport([trace(true)], res, (s) => s);
+  assert.equal(ok.entries[0].problem, false, 'the hero model another pick carries, with the reference in it, is no problem');
+  assert.match(ok.text, /ссылка в модели героя: записана; модель героя в паке: да, от «head»/);
+  assert.equal(buildApplyReport([trace(false)], res, (s) => s).entries[0].problem, true, 'no reference: a problem');
+  assert.equal(buildApplyReport([trace(true)], { ...(res as object), owners: {} } as never, (s) => s).entries[0].problem, true, 'no hero model in the pak: a problem');
+}
+
 console.log('resident-models: ok');

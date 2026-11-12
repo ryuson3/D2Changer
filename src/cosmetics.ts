@@ -31,6 +31,7 @@ import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb 
 import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
 import { withResidentModels, type Resident } from './resident-models.ts';
+import { references } from './resource.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
 import { itemParticles, entityModel, particleReplacements, heroLoadoutParticles } from './particle-spec.ts';
 import { offeredUnusual, effectNames } from './item-unusual.ts';
@@ -414,7 +415,8 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
           return [to.endsWith('_c') ? to : `${to}_c`];
         });
         // the hero's model that keeps this pick's model loaded shows in the report with the pick's own files
-        for (const r of residents) if (r.patch === heroPatches.length - 1 && !trace.paths.includes(r.heroModel)) trace.paths.push(r.heroModel);
+        const kept = residents.find((r) => r.patch === heroPatches.length - 1);
+        if (kept) trace.resident = { heroModel: kept.heroModel, model: normalizeAssetPath(kept.model), linked: false };
         traces.push(trace);
         for (const copy of pick.assetCopies) {
           if (!('to' in copy)) continue;
@@ -440,6 +442,12 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     if (residents.length) {
       const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
       failed.push(...withResidentModels(heroPatches, residents, (p) => ix.read(p)));
+      for (const t of traces) {
+        const r = t.resident;
+        if (!r) continue;
+        const en = heroPatches.flatMap((p) => p.assets ?? []).find((x) => entryPath(x).toLowerCase() === r.heroModel);
+        try { r.linked = !!en && references(en.data).includes(r.model); } catch { r.linked = false; }
+      }
     }
     if (heroPatches.length) {
       // Two picks rewrite the same soundevents file, portrait settings and sprite sheet, and the
