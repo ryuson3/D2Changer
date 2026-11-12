@@ -31,7 +31,7 @@ import { RECOLOR_SETS, recolorFiles, recolorMaterial, recolorResource, type Rgb 
 import { validGem, cleanGems, gemColors, withGemPictures, prismaticGemArt, GEM_SETS, type Gems, type GemColor, type GemArt } from './gems.ts';
 import { normalizeAssetPath, heroModelPath } from './item-builder-assets.ts';
 import { buildPreview, type PreviewModel, type PreviewScene } from './preview.ts';
-import { itemParticles } from './particle-spec.ts';
+import { itemParticles, entityModel, particleReplacements, heroLoadoutParticles } from './particle-spec.ts';
 import { offeredUnusual, effectNames } from './item-unusual.ts';
 import { ITEM_EFFECTS } from './item-builder-effects.ts';
 import { modFolderName, ensureModFolder } from './modfolder.ts';
@@ -715,7 +715,21 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
     const ix = sharedVpkIndex(path.join(gamePath, 'dota', 'pak01_dir.vpk'));
     const all = schema.listItems(base.text);
     const byId = new Map(all.map((i) => [i.id, i]));
-    const models: PreviewModel[] = [{ label: heroDisplayName(heroId), model: heroModelPath(ix, `npc_dota_hero_${heroId}`) }];
+    const npc = `npc_dota_hero_${heroId}`;
+    const stockBody = heroModelPath(ix, npc);
+    const models: PreviewModel[] = [{ label: heroDisplayName(heroId), model: stockBody }];
+    // What a worn item changes of the hero himself: an arcana puts him in its own body and swaps some of
+    // his systems for its own, and an item with no model of its own (or the body itself) plays its systems on him.
+    let body = normalizeAssetPath(stockBody);
+    const bodyFx: string[] = [];
+    const replacements = new Map<string, string>();
+    const wear = (i: { start: number; end: number }, effects?: string) => {
+      const block = base.text.slice(i.start, i.end), style = itemBuilder.styleOfKey(itemBuilder.effectKey(effects));
+      const swap = entityModel(block, npc, style);
+      if (swap && ix.has(`${swap}_c`)) body = swap;
+      for (const [from, to] of particleReplacements(block, style)) replacements.set(from, to);
+    };
+    const put = (m: PreviewModel): void => { models.push(m); };
     // what the hero wears when nothing is picked: its stock items; a pick takes the place of the stock item of its slot
     const picked = new Map(heroSlots(heroId).slots.filter((x) => x.picked).map((x) => [x.targetId, x]));
     const nameOf = (i: { name: string }, slotLabel: string, id?: string, slot?: HeroSlotInfo) =>
@@ -733,16 +747,30 @@ export function createCosmetics({ gamePath, dataDir }: CosmeticsOptions) {
       const worn = slot?.picked ? byId.get(String(slot.picked.itemId)) : undefined;
       const item = worn ?? st;
       const stockLabel = `${slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? ''} · ${schema.toUtf8(st.name)}`;
-      if (item.model) models.push({ label: nameOf(item, slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? '', slot?.picked?.itemId, slot), model: item.model, fallback: worn && st.model ? { label: stockLabel, model: st.model } : undefined, particles: particlesOf(item, slot?.picked?.effects) });
+      if (worn) wear(worn, slot!.picked!.effects);
+      if (item.model) put({ label: nameOf(item, slot?.slotLabel ?? schema.itemFields(base.text, st).get('item_slot') ?? '', slot?.picked?.itemId, slot), model: item.model, fallback: worn && st.model ? { label: stockLabel, model: st.model } : undefined, particles: particlesOf(item, slot?.picked?.effects) });
+      else if (worn) bodyFx.push(...particlesOf(worn, slot!.picked!.effects));
     }
     const persona: string[] = [];
     for (const slot of picked.values()) {          // a pick in a slot that has no stock item of its own
       // a persona is a different model of the whole hero, with its own items: drawn next to the hero it would stand inside him
       if (/persona/i.test(`${slot.equipSlot} ${slot.slotLabel}`)) { persona.push(slot.slotLabel); continue; }
       const worn = byId.get(String(slot.picked!.itemId));
-      if (worn?.model) models.push({ label: nameOf(worn, slot.slotLabel, slot.picked!.itemId, slot), model: worn.model, particles: particlesOf(worn, slot.picked!.effects) });
+      if (worn) wear(worn, slot.picked!.effects);
+      if (worn?.model) put({ label: nameOf(worn, slot.slotLabel, slot.picked!.itemId, slot), model: worn.model, particles: particlesOf(worn, slot.picked!.effects) });
+      else if (worn) bodyFx.push(...particlesOf(worn, slot.picked!.effects));
     }
-    const scene = await buildPreview(ix, models);
+    // an item whose model is the body it swaps in is the hero, not something he wears
+    for (let k = models.length - 1; k > 0; k--) {
+      if (normalizeAssetPath(models[k].model) !== body) continue;
+      bodyFx.push(...(models[k].particles ?? []));
+      models.splice(k, 1);
+    }
+    let heroFx: string[] = [];
+    try { heroFx = heroLoadoutParticles(ix.read(`scripts/npc/heroes/${npc}.txt`)?.toString('latin1') ?? ''); } catch { /* a script with no portrait block */ }
+    models[0] = { ...models[0], model: body, particles: [...new Set([...bodyFx, ...heroFx])],
+      ...(body !== normalizeAssetPath(stockBody) ? { fallback: { label: models[0].label, model: stockBody } } : {}) };
+    const scene = await buildPreview(ix, models, replacements);
     if (persona.length) scene.notes.push(`Персона (${persona.join(', ')}) заменяет героя целиком и в превью пока не показывается`);
     return { ...scene, hero: heroId, name: heroDisplayName(heroId) };
   }

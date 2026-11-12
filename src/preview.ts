@@ -126,7 +126,7 @@ function pose(P: Float32Array, skin: MeshSkin | undefined, names: string[], only
 /**
  * @param models the hero's own model first, then the items it wears
  */
-export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promise<PreviewScene> {
+export async function buildPreview(ix: VpkIndex, models: PreviewModel[], replacements: Map<string, string> = new Map()): Promise<PreviewScene> {
   const decoder = await loadMeshopt();
   const scene: PreviewScene = { parts: [], textures: [], notes: [], min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity], fx: [], attachments: [], surface: new Float32Array(0), fxTextures: {} };
   const files: (Buffer | null)[] = [];
@@ -245,18 +245,25 @@ export async function buildPreview(ix: VpkIndex, models: PreviewModel[]): Promis
     else scene.notes.push(failed);
   });
   if (!scene.parts.length) { scene.min = [0, 0, 0]; scene.max = [1, 1, 1]; }
-  addEffects(ix, models, files, scene, heroParts);
+  addEffects(ix, models, files, scene, heroParts, replacements);
   return scene;
 }
 
 /** The particle systems of every model, their sprite pictures, and points on the hero's body to spawn on. */
-function addEffects(ix: VpkIndex, models: PreviewModel[], files: (Buffer | null)[], scene: PreviewScene, heroParts: number): void {
+function addEffects(ix: VpkIndex, models: PreviewModel[], files: (Buffer | null)[], scene: PreviewScene, heroParts: number, replacements: Map<string, string>): void {
   const budget = { left: MAX_SYSTEMS };
-  const read = (p: string) => ix.read(p);
+  // a worn item's swap can name a child of a system as well as its root, so every read goes through it
+  const swapped = (p: string) => replacements.get(p.toLowerCase().replace(/_c$/, '')) ?? p.replace(/_c$/i, '');
+  const read = (p: string) => ix.read(`${swapped(p)}_c`);
+  const seen = new Set<string>();
   models.forEach((m, k) => {
-    const own = k > 0 && files[k] ? modelParticles(files[k]) : [];
-    for (const path of new Set([...(m.particles ?? []), ...own])) {
+    // the body lists its ambient systems itself as well (an arcana's body: its glow and smoke)
+    const own = files[k] ? modelParticles(files[k]) : [];
+    for (const root of new Set([...(m.particles ?? []), ...own])) {
       if (budget.left <= 0) break;
+      const path = swapped(root);
+      if (seen.has(`${k}|${path}`)) continue;
+      seen.add(`${k}|${path}`);
       try {
         const def = particleDef(read, path, budget);
         if (def) scene.fx.push({ owner: k, spec: particleSpec(def) });

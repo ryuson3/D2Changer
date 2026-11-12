@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { itemParticles, particleDef } from '../src/particle-spec.ts';
+import { itemParticles, particleDef, entityModel, particleReplacements, heroLoadoutParticles } from '../src/particle-spec.ts';
 import { particleSpec, specTextures, range, vec } from '../src/particle-def.ts';
 import { effectParticles } from '../src/item-builder.ts';
 
@@ -43,5 +43,28 @@ assert.equal(spec.draw, 'none');
 assert.equal(specTextures(spec).size, 0);
 assert.ok(spec.cps.some(([n]) => n === 4), 'the control point it sets itself');
 assert.doesNotThrow(() => structuredClone(spec), 'the spec crosses to the window');
+
+// an arcana: the body it puts the hero in, the systems it swaps, and the hero's own loadout systems
+const arcana = `"5957"
+{
+	"visuals"
+	{
+		"asset_modifier0" { "type" "entity_model" "asset" "npc_dota_hero_terrorblade" "modifier" "models/heroes/terrorblade/terrorblade_arcana.vmdl" }
+		"asset_modifier1" { "type" "entity_model" "asset" "npc_dota_terrorblade_illusion" "modifier" "models/other.vmdl" }
+		"asset_modifier2" { "type" "particle" "asset" "particles/units/heroes/hero_terrorblade/terrorblade_ambient_sword.vpcf" "modifier" "particles/econ/items/terrorblade/arcana/sword.vpcf" }
+		"asset_modifier3" { "type" "particle" "asset" "particles/a.vpcf" "modifier" "particles/b.vpcf" "style" "1" }
+	}
+}`;
+assert.equal(entityModel(arcana, 'npc_dota_hero_terrorblade'), 'models/heroes/terrorblade/terrorblade_arcana.vmdl');
+assert.equal(entityModel(block, 'npc_dota_hero_terrorblade'), null);
+assert.deepEqual([...particleReplacements(arcana)], [['particles/units/heroes/hero_terrorblade/terrorblade_ambient_sword.vpcf', 'particles/econ/items/terrorblade/arcana/sword.vpcf']]);
+assert.equal(particleReplacements(arcana, 1).get('particles/a.vpcf'), 'particles/b.vpcf');
+const script = `"DOTAHeroes" { "npc_dota_hero_terrorblade" { "Model" "models/x.vmdl" "RenderablePortrait" { "Particles" {
+	"particles/units/heroes/hero_terrorblade/terrorblade_loadout.vpcf" "loadout"
+	"particles/other.vpcf" "portrait"
+	"particles/block.vpcf" { "0" { "type" "follow_origin" } }
+} } } }`;
+assert.deepEqual(heroLoadoutParticles(script), ['particles/units/heroes/hero_terrorblade/terrorblade_loadout.vpcf', 'particles/block.vpcf']);
+assert.deepEqual(heroLoadoutParticles('"x" { }'), []);
 
 console.log('particles: ok');

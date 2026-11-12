@@ -4,6 +4,8 @@
  *
  * Which systems: an item's `particle_create` asset modifiers for its chosen style, the ones a model
  * lists in its own key values (particle_cfg_list), and the particles of the effects picked on top.
+ * An arcana also swaps the hero's body (`entity_model`) and some of the hero's systems for its own
+ * (`particle`), and the hero has loadout systems of its own in its script.
  *
  * Ported from Dota 2 Mod Manager (github.com/dota2modmanager/dota2-mod-manager, src/particle-spec.ts
  * and src/model-particles.ts), GPL-3.0-or-later.
@@ -12,6 +14,7 @@
  */
 import { readKv3, numberOf, type Kv3Block, type Kv3Node } from './kv3.ts';
 import { resourceBlocks } from './resource.ts';
+import { blockBounds, eachChild } from './schema-kv.ts';
 
 /** A KV3 value as plain JSON. */
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
@@ -75,6 +78,54 @@ export function itemParticles(block: string, style = 0): string[] {
     const p = field('modifier');
     if (p && /^particles\/[\w/.-]+\.vpcf$/i.test(p)) out.push(p.toLowerCase());
   }
+  return out;
+}
+
+/** An item block's asset modifiers of the chosen style (one with no style belongs to every style). */
+function modifiers(block: string, style: number): ((k: string) => string | undefined)[] {
+  const out: ((k: string) => string | undefined)[] = [];
+  for (const m of block.matchAll(/"asset_modifier\d*"\s*\{([^{}]*)\}/gi)) {
+    const field = (k: string) => new RegExp(`"${k}"\\s+"([^"]*)"`, 'i').exec(m[1])?.[1];
+    const own = field('style');
+    if (own === undefined || Number(own) === style) out.push(field);
+  }
+  return out;
+}
+
+const assetPath = (p: string | undefined) => (p || '').toLowerCase().replace(/\\/g, '/').replace(/_c$/, '');
+
+/** The body an item puts the hero in (an arcana's `entity_model`), or null. */
+export function entityModel(block: string, hero: string, style = 0): string | null {
+  for (const field of modifiers(block, style)) {
+    if (field('type')?.toLowerCase() !== 'entity_model' || field('asset')?.toLowerCase() !== hero.toLowerCase()) continue;
+    const model = assetPath(field('modifier'));
+    if (model.endsWith('.vmdl')) return model;
+  }
+  return null;
+}
+
+/** The systems an item swaps for its own (`particle`), stock path to the item's. */
+export function particleReplacements(block: string, style = 0): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const field of modifiers(block, style)) {
+    if (!['particle', 'particle_combined'].includes(field('type')?.toLowerCase() || '')) continue;
+    const from = assetPath(field('asset')), to = assetPath(field('modifier'));
+    if (from.endsWith('.vpcf') && to.endsWith('.vpcf')) out.set(from, to);
+  }
+  return out;
+}
+
+/** The hero's own loadout systems, out of its script's RenderablePortrait block. */
+export function heroLoadoutParticles(script: string): string[] {
+  const portrait = /"RenderablePortrait"\s*\{/i.exec(script);
+  if (!portrait) return [];
+  const out: string[] = [];
+  eachChild(script, blockBounds(script, portrait.index + portrait[0].length - 1), (field) => {
+    if (!field.isBlock || field.key.toLowerCase() !== 'particles') return;
+    eachChild(script, field.body, (particle) => {
+      if (/^particles\/[\w/.-]+\.vpcf$/i.test(particle.key) && (particle.isBlock || particle.value.toLowerCase() === 'loadout')) out.push(particle.key.toLowerCase());
+    });
+  });
   return out;
 }
 
